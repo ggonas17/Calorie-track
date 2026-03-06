@@ -1,6 +1,7 @@
 import sqlite3
 from flask import Flask, request, redirect, url_for
 import json
+import calendar
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
@@ -19,13 +20,18 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS settings 
                     (key TEXT PRIMARY KEY, value TEXT)''')
     
-    # Nova tabela só para os passos diários
+    # Tabela de estatísticas diárias melhorada (permite sobrescrever macros e passos)
     conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
-                    (date TEXT PRIMARY KEY, steps INTEGER)''')
+                    (date TEXT PRIMARY KEY, steps INTEGER, calories INTEGER, protein INTEGER)''')
+    
+    # Prevenção de erros caso já tenhas a tabela daily_stats antiga
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN calories INTEGER')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN protein INTEGER')
+    except: pass
     
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_goal', '3000')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('protein_goal', '150')")
-    # Novo objetivo de passos
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('step_goal', '10000')")
     conn.commit()
     conn.close()
@@ -73,14 +79,15 @@ def home():
     yesterday_display = yesterday_dt.strftime("%d/%m")
     
     if request.method == 'POST':
-        # Vê se a pessoa submeteu os passos de ontem
         y_steps = request.form.get('yesterday_steps')
         if y_steps:
-            conn.execute('INSERT OR REPLACE INTO daily_stats (date, steps) VALUES (?, ?)', (yesterday_str, int(y_steps)))
+            # Garante que cria a estatística de ontem sem apagar macros que possam lá estar
+            row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
+            if row: conn.execute('UPDATE daily_stats SET steps=? WHERE date=?', (int(y_steps), yesterday_str))
+            else: conn.execute('INSERT INTO daily_stats (date, steps) VALUES (?, ?)', (yesterday_str, int(y_steps)))
             conn.commit()
             return redirect(url_for('home'))
 
-        # Lógica de comida normal
         f_name = request.form.get('food_name') or "Refeição"
         c_val = request.form.get('calories')
         p_val = request.form.get('protein')
@@ -95,10 +102,12 @@ def home():
                              (f_name, int(c_val), int(p_val), ""))
             conn.commit()
 
-    # Verifica se os passos de ontem faltam
     missing_steps_html = ""
     step_record = conn.execute('SELECT steps FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
-    if not step_record:
+    # Só chateia se o gajo tiver comido alguma cena ontem (para não aparecer a novatos absolutos)
+    had_logs_yesterday = conn.execute('SELECT id FROM logs WHERE date = ? LIMIT 1', (yesterday_str,)).fetchone()
+    
+    if not step_record and had_logs_yesterday:
         missing_steps_html = f"""
         <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
             <h3 style="color:#ff9f0a; margin-top:0;">👣 PASSOS DE ONTEM ({yesterday_display})</h3>
@@ -116,8 +125,17 @@ def home():
     goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
     goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
     
-    total_c = sum(log['calories'] for log in logs)
-    total_p = sum(log['protein'] for log in logs)
+    # Busca a possibilidade de teres editado o HOJE no calendário
+    today_stats = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (today,)).fetchone()
+    today_stats_c = today_stats['calories'] if today_stats and 'calories' in today_stats.keys() and today_stats['calories'] is not None else None
+    today_stats_p = today_stats['protein'] if today_stats and 'protein' in today_stats.keys() and today_stats['protein'] is not None else None
+    
+    calc_c = sum(log['calories'] for log in logs)
+    calc_p = sum(log['protein'] for log in logs)
+    
+    total_c = today_stats_c if today_stats_c is not None else calc_c
+    total_p = today_stats_p if today_stats_p is not None else calc_p
+    
     conn.close()
 
     pct_c = min((total_c / goal_c) * 100, 100) if goal_c > 0 else 0
@@ -180,6 +198,162 @@ def home():
     </body></html>
     """
 
+@app.route('/history')
+def history():
+    conn = get_db_connection()
+    month_str = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    try: target_date = datetime.strptime(month_str, '%Y-%m')
+    except: target_date = datetime.now()
+        
+    y, m = target_date.year, target_date.month
+    prev_m = (target_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+    next_m = (target_date.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m')
+    
+    month_names = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    month_name = month_names[m-1]
+
+    logs_data = conn.execute("SELECT date, SUM(calories) as c, SUM(protein) as p FROM logs GROUP BY date").fetchall()
+    stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
+    conn.close()
+
+    logs_dict = {row['date']: {'c': row['c'], 'p': row['p']} for row in logs_data}
+    stats_dict = {row['date']: row for row in stats_data}
+
+    cal = calendar.Calendar(firstweekday=0)
+    month_days = cal.monthdatescalendar(y, m)
+
+    cal_html = f"""
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <a href="/history?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a>
+        <h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_name} {y}</h2>
+        <a href="/history?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;">
+        <div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:8px;">
+    """
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    for week in month_days:
+        for day_date in week:
+            d_str = day_date.strftime("%Y-%m-%d")
+            d_num = day_date.day
+            
+            is_current_month = day_date.month == m
+            bg_color = "#1c1c1e" if is_current_month else "transparent"
+            text_color = "#fff" if is_current_month else "#444"
+            
+            logs_c = logs_dict.get(d_str, {}).get('c', 0)
+            stats_row = stats_dict.get(d_str, {})
+            stats_c = stats_row['calories'] if stats_row and 'calories' in stats_row.keys() and stats_row['calories'] is not None else None
+            stats_s = stats_row['steps'] if stats_row and 'steps' in stats_row.keys() and stats_row['steps'] is not None else 0
+            
+            final_c = stats_c if stats_c is not None else logs_c
+            
+            border = "border: 1px solid #2c2c2e;"
+            if d_str == today_str: border = "border: 2px solid #0a84ff;"
+            elif final_c > 0 or stats_s > 0: border = "border: 1px solid #30d158;"
+            if not is_current_month: border = "border: 1px solid transparent;"
+            
+            indic = ""
+            if is_current_month and final_c > 0:
+                indic = f'<div style="font-size:0.55rem; color:#8e8e93; margin-top:4px; font-weight:bold;">{final_c}k</div>'
+
+            cal_html += f"""
+            <a href="/edit_day/{d_str}" style="background:{bg_color}; {border} border-radius:12px; padding:12px 2px; text-decoration:none; color:{text_color}; display:flex; flex-direction:column; align-items:center; min-height:50px; box-sizing:border-box; transition:0.2s;">
+                <span style="font-weight:bold; font-size:1rem;">{d_num}</span>
+                {indic}
+            </a>
+            """
+    cal_html += "</div>"
+
+    return f"""
+    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
+    <body>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">HISTÓRICO PERPÉTUO</h2>
+        <div class="card" style="padding:15px;">
+            {cal_html}
+        </div>
+        <p style="color:#8e8e93; font-size:0.8rem; margin-top:10px;">Clica em qualquer dia para ver ou editar as macros e os passos (mesmo no passado ou no futuro!).</p>
+        <div class="nav-bar">
+            <a href="/" class="nav-item"><span>🏠</span><br>HOJE</a>
+            <a href="/history" class="nav-item active"><span>📅</span><br>HISTÓRICO</a>
+            <a href="/manage_favs" class="nav-item"><span>⚙️</span><br>DEFINIÇÕES</a>
+        </div>
+    </body></html>
+    """
+
+@app.route('/edit_day/<date>', methods=['GET', 'POST'])
+def edit_day(date):
+    conn = get_db_connection()
+    if request.method == 'POST':
+        c_val = request.form.get('calories')
+        p_val = request.form.get('protein')
+        s_val = request.form.get('steps')
+        
+        c_val = int(c_val) if c_val and c_val.strip() != "" else None
+        p_val = int(p_val) if p_val and p_val.strip() != "" else None
+        s_val = int(s_val) if s_val and s_val.strip() != "" else None
+        
+        row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
+        if row: conn.execute('UPDATE daily_stats SET calories=?, protein=?, steps=? WHERE date=?', (c_val, p_val, s_val, date))
+        else: conn.execute('INSERT INTO daily_stats (date, calories, protein, steps) VALUES (?, ?, ?, ?)', (date, c_val, p_val, s_val))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('history', month=date[:7]))
+        
+    logs = conn.execute('SELECT SUM(calories) as c, SUM(protein) as p FROM logs WHERE date = ?', (date,)).fetchone()
+    stats = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
+    
+    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
+    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
+    goal_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
+    conn.close()
+    
+    logs_c = logs['c'] if logs and logs['c'] else 0
+    logs_p = logs['p'] if logs and logs['p'] else 0
+    
+    stats_c = stats['calories'] if stats and 'calories' in stats.keys() and stats['calories'] is not None else ""
+    stats_p = stats['protein'] if stats and 'protein' in stats.keys() and stats['protein'] is not None else ""
+    stats_s = stats['steps'] if stats and 'steps' in stats.keys() and stats['steps'] is not None else ""
+    
+    disp_c = stats_c if stats_c != "" else logs_c
+    disp_p = stats_p if stats_p != "" else logs_p
+    disp_s = stats_s if stats_s != "" else 0
+    
+    date_obj = datetime.strptime(date, "%Y-%m-%d")
+    display_date = date_obj.strftime("%d %b %Y")
+    
+    return f"""
+    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
+    <body>
+        <h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2>
+        <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: 1px solid #30d158;">
+            <h1 style="font-size: 2.5rem; margin: 0; color: #fff;">{disp_c} <span style="font-size: 1rem; color: #8e8e93;">/ {goal_c} kcal</span></h1>
+            <p style="color: #30d158; font-weight: bold; font-size: 1.1rem; margin: 5px 0;">{disp_p} <span style="font-size: 0.9rem; color: #8e8e93;">/ {goal_p}g Prot</span></p>
+            <p style="color: #ff9f0a; font-weight: bold; font-size: 1.1rem; margin: 5px 0;">👣 {disp_s} <span style="font-size: 0.9rem; color: #8e8e93;">/ {goal_s} Passos</span></p>
+        </div>
+        <div class="card">
+            <h3 style="margin-top:0; color:#8e8e93;">SOBRESCREVER VALORES</h3>
+            <p style="font-size:0.8rem; color:#8e8e93; text-align:left; margin-bottom:15px;">Se preencheres estes campos, os valores calculados através do diário são ignorados para este dia. Deixa em branco para usar a soma automática dos registos.</p>
+            <form method="POST">
+                <div style="display:flex; flex-direction:column; gap:10px; align-items:flex-start;">
+                    <label style="color:#8e8e93; font-weight:bold; font-size:0.9rem; margin-left:5px;">Calorias Totais (Kcal):</label>
+                    <input type="number" name="calories" value="{stats_c}" placeholder="Automático: {logs_c} kcal" style="margin:0; width:100%;">
+                    <label style="color:#8e8e93; font-weight:bold; font-size:0.9rem; margin-left:5px; margin-top:10px;">Proteína Total (g):</label>
+                    <input type="number" name="protein" value="{stats_p}" placeholder="Automático: {logs_p} g" style="margin:0; width:100%;">
+                    <label style="color:#ff9f0a; font-weight:bold; font-size:0.9rem; margin-left:5px; margin-top:10px;">Passos 👣:</label>
+                    <input type="number" name="steps" value="{stats_s}" placeholder="Ex: 10500" style="margin:0; width:100%;">
+                </div>
+                <button type="submit" class="btn-main" style="margin-top:20px;">GRAVAR DIA</button>
+            </form>
+            <a href="/history" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar ao Calendário</a>
+        </div>
+    </body></html>
+    """
+
 @app.route('/build_meal', methods=['GET', 'POST'])
 def build_meal():
     conn = get_db_connection()
@@ -189,15 +363,11 @@ def build_meal():
         m_prot = request.form.get('total_prot')
         m_recipe = request.form.get('recipe_json')
         save_lib = request.form.get('save_lib')
-        
         now_time = datetime.now().strftime("%H:%M")
         today = datetime.now().strftime("%Y-%m-%d")
         
-        conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date) VALUES (?, ?, ?, ?, ?)', 
-                     (m_name, int(m_cal), int(m_prot), now_time, today))
-        if save_lib:
-            conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)', 
-                         (m_name, int(m_cal), int(m_prot), m_recipe))
+        conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date) VALUES (?, ?, ?, ?, ?)', (m_name, int(m_cal), int(m_prot), now_time, today))
+        if save_lib: conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)', (m_name, int(m_cal), int(m_prot), m_recipe))
         conn.commit(); conn.close()
         return redirect(url_for('home'))
 
@@ -257,10 +427,8 @@ def build_meal():
                     totalCal += it.cal; totalProt += it.prot;
                     htmlList += `<div>• ${{it.name}} <span style="color:#444;">(${{it.cal}}kcal | ${{it.prot}}g)</span></div>`;
                 }});
-                document.getElementById('t_cal').innerText = totalCal; 
-                document.getElementById('t_prot').innerText = totalProt; 
-                document.getElementById('form_cal').value = totalCal; 
-                document.getElementById('form_prot').value = totalProt;
+                document.getElementById('t_cal').innerText = totalCal; document.getElementById('t_prot').innerText = totalProt; 
+                document.getElementById('form_cal').value = totalCal; document.getElementById('form_prot').value = totalProt;
                 document.getElementById('form_recipe').value = JSON.stringify(items);
                 document.getElementById('recipe_box').innerHTML = htmlList || "Prato vazio.";
                 document.getElementById('undo_btn').style.display = items.length > 0 ? "block" : "none";
@@ -367,20 +535,15 @@ def edit_fav(fav_id):
                 let html = ""; let tCal = 0; let tProt = 0;
                 recipe.forEach((it, idx) => {{
                     tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0;
-                    html += `
-                    <div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;">
+                    html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;">
                         <input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, 'name', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;">
                         <input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, 'cal', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;">
                         <input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, 'prot', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;">
                         <button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button>
                     </div>`;
                 }});
-                document.getElementById('recipe_list').innerHTML = html;
-                document.getElementById('total_cal_display').innerText = tCal;
-                document.getElementById('total_prot_display').innerText = tProt;
-                document.getElementById('form_cal').value = tCal;
-                document.getElementById('form_prot').value = tProt;
-                document.getElementById('form_recipe').value = JSON.stringify(recipe);
+                document.getElementById('recipe_list').innerHTML = html; document.getElementById('total_cal_display').innerText = tCal; document.getElementById('total_prot_display').innerText = tProt;
+                document.getElementById('form_cal').value = tCal; document.getElementById('form_prot').value = tProt; document.getElementById('form_recipe').value = JSON.stringify(recipe);
             }}
             function updateItem(idx, field, val) {{ if(field === 'cal' || field === 'prot') val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }}
             function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }}
@@ -415,36 +578,6 @@ def edit_log(log_id):
         
     log = conn.execute('SELECT * FROM logs WHERE id=?', (log_id,)).fetchone(); conn.close()
     return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93;">EDITAR DIÁRIO</h2><div class="card"><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Registado às {log["timestamp"]}</p><form method="POST"><input type="text" name="food_name" value="{log["food_name"]}" required><input type="number" name="calories" value="{log["calories"]}" required><input type="number" name="protein" value="{log["protein"]}" required><button type="submit" class="btn-main">ATUALIZAR REFEIÇÃO</button></form><a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a></div></body></html>'
-
-@app.route('/history')
-def history():
-    conn = get_db_connection()
-    # Puxa os dados dos logs
-    days = conn.execute('''SELECT date, SUM(calories) as total_c, SUM(protein) as total_p FROM logs GROUP BY date ORDER BY date DESC LIMIT 30''').fetchall()
-    
-    # Puxa os dados dos passos e as metas
-    stats = {row['date']: row['steps'] for row in conn.execute('SELECT * FROM daily_stats').fetchall()}
-    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
-    goal_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
-    conn.close()
-    
-    html_content = ""
-    for d in days:
-        date_str = d["date"]
-        steps_val = stats.get(date_str, 0)
-        steps_color = "#ff9f0a" if steps_val >= goal_s else "#8e8e93"
-        
-        html_content += f"""
-        <div class="log-item" style="display:flex; flex-direction:column; align-items:flex-start;">
-            <div style="width:100%; display:flex; justify-content:space-between; margin-bottom:8px;">
-                <b style="color:#0a84ff;">{datetime.strptime(date_str, "%Y-%m-%d").strftime("%d %b")}</b>
-                <span style="color:{steps_color}; font-size:0.85rem; font-weight:bold;">👣 {steps_val} / {goal_s}</span>
-            </div>
-            <div style="font-weight:bold;">{d["total_c"]} <span style="font-size:0.8rem; color:#8e8e93;">/ {goal_c} kcal</span> | {d["total_p"]}g Prot</div>
-        </div>
-        """
-        
-    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; margin-bottom:30px;">HISTÓRICO</h2>{html_content or "<p style=\'color:#444;\'>Sem histórico.</p>"}<div class="nav-bar"><a href="/" class="nav-item"><span>🏠</span><br>HOJE</a><a href="/history" class="nav-item active"><span>📅</span><br>HISTÓRICO</a><a href="/manage_favs" class="nav-item"><span>⚙️</span><br>DEFINIÇÕES</a></div></body></html>'
 
 @app.route('/quick_add/<int:fav_id>')
 def quick_add(fav_id):
