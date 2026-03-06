@@ -282,7 +282,7 @@ def history():
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
     <body>
-        <h2 style="color:#8e8e93; margin-bottom:30px;">DIAS PASSADOS</h2>
+        <h2 style="color:#8e8e93; margin-bottom:30px;">HISTÓRICO</h2>
         {html_content or '<p style="color:#444;">Sem histórico.</p>'}
         <div class="nav-bar">
             <a href="/" class="nav-item"><span>🏠</span><br>HOJE</a>
@@ -324,13 +324,13 @@ def manage_favs():
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
     <body>
         <div class="card">
-            <h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS (BULKING)</h3>
+            <h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS</h3>
             <form method="POST">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="number" name="new_goal" value="{goal_c}" placeholder="Meta Kcal" style="margin:0; width:50%;">
                     <input type="number" name="new_p_goal" value="{goal_p}" placeholder="Meta Prot" style="margin:0; width:50%;">
                 </div>
-                <button type="submit" class="btn-main" style="margin:0;">ATUALIZAR METAS</button>
+                <button type="submit" class="btn-main" style="margin:0;">ATUALIZAR OBJETIVOS</button>
             </form>
         </div>
         <h3 class="day-header">EDITAR BIBLIOTECA</h3>
