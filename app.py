@@ -1,7 +1,7 @@
 import sqlite3
 from flask import Flask, request, redirect, url_for
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -19,14 +19,19 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS settings 
                     (key TEXT PRIMARY KEY, value TEXT)''')
     
+    # Nova tabela só para os passos diários
+    conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
+                    (date TEXT PRIMARY KEY, steps INTEGER)''')
+    
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_goal', '3000')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('protein_goal', '150')")
+    # Novo objetivo de passos
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('step_goal', '10000')")
     conn.commit()
     conn.close()
 
 init_db()
 
-# Função para dar o Badge Elite
 def get_badge(recipe_str):
     if recipe_str and recipe_str not in ('', '""', '[]'):
         return '<span style="background:#5e5ce6; color:#fff; padding:3px 8px; border-radius:8px; font-size:0.55rem; margin-left:6px; vertical-align:middle; font-weight:900; letter-spacing:0.5px;">REFEIÇÃO</span>'
@@ -42,6 +47,8 @@ CSS = """
     input { background: #2c2c2e; border: none; border-radius: 12px; color: #fff; padding: 15px; margin: 8px 0; width: 90%; font-size: 16px; -webkit-appearance: none; box-sizing: border-box; }
     .btn-main { background: #0a84ff; color: #fff; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; }
     .btn-green { background: #30d158; color: #000; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; text-decoration: none; display: block; }
+    .btn-orange { background: #ff9f0a; color: #000; border: none; border-radius: 12px; padding: 14px; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
+    .btn-red { background: #ff453a; color: #fff; border: none; border-radius: 12px; padding: 10px; font-weight: bold; font-size: 14px; cursor: pointer; margin-top: 10px; }
     .sug-container { display: flex; overflow-x: auto; gap: 10px; padding: 10px 0; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .sug-item { background: #2c2c2e; color: #0a84ff; padding: 15px 18px; border-radius: 18px; text-decoration: none; min-width: 140px; font-size: 0.85rem; border: 1px solid #3a3a3c; flex-shrink: 0; cursor: pointer; text-align: left; }
     .log-item { display: flex; justify-content: space-between; align-items: center; background: #1c1c1e; padding: 16px; border-radius: 18px; margin-bottom: 12px; border: 1px solid #2c2c2e; }
@@ -53,6 +60,7 @@ CSS = """
     .progress-fill-c { background: linear-gradient(90deg, #0a84ff, #5e5ce6); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .progress-fill-p { background: linear-gradient(90deg, #30d158, #32d74b); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; max-height: 250px; overflow-y: auto; }
+    @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 </style>
 """
 
@@ -60,8 +68,19 @@ CSS = """
 def home():
     conn = get_db_connection()
     today = datetime.now().strftime("%Y-%m-%d")
+    yesterday_dt = datetime.now() - timedelta(days=1)
+    yesterday_str = yesterday_dt.strftime("%Y-%m-%d")
+    yesterday_display = yesterday_dt.strftime("%d/%m")
     
     if request.method == 'POST':
+        # Vê se a pessoa submeteu os passos de ontem
+        y_steps = request.form.get('yesterday_steps')
+        if y_steps:
+            conn.execute('INSERT OR REPLACE INTO daily_stats (date, steps) VALUES (?, ?)', (yesterday_str, int(y_steps)))
+            conn.commit()
+            return redirect(url_for('home'))
+
+        # Lógica de comida normal
         f_name = request.form.get('food_name') or "Refeição"
         c_val = request.form.get('calories')
         p_val = request.form.get('protein')
@@ -75,6 +94,21 @@ def home():
                 conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)',
                              (f_name, int(c_val), int(p_val), ""))
             conn.commit()
+
+    # Verifica se os passos de ontem faltam
+    missing_steps_html = ""
+    step_record = conn.execute('SELECT steps FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
+    if not step_record:
+        missing_steps_html = f"""
+        <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
+            <h3 style="color:#ff9f0a; margin-top:0;">👣 PASSOS DE ONTEM ({yesterday_display})</h3>
+            <p style="font-size:0.85rem; color:#8e8e93; margin-top:0;">Máquina, esqueceste-te de registar o cardio de ontem. Manda aí os números!</p>
+            <form method="POST" style="display:flex; gap:10px;">
+                <input type="number" name="yesterday_steps" placeholder="Passos totais" required style="margin:0; width:65%; background:#000;">
+                <button type="submit" class="btn-orange" style="margin:0; width:35%;">GRAVAR</button>
+            </form>
+        </div>
+        """
 
     logs = conn.execute('SELECT * FROM logs WHERE date = ? ORDER BY id DESC', (today,)).fetchall()
     favs = conn.execute('SELECT * FROM favorites').fetchall()
@@ -105,6 +139,7 @@ def home():
 
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">{CSS}</head><body>
+        {missing_steps_html}
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: left;">
             <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold;">HOJE</p>
             <h1 style="font-size: 2.5rem; margin: 5px 0 0 0; color: {color_c}; transition: color 0.3s;">
@@ -178,6 +213,7 @@ def build_meal():
             <h1 style="margin:0; font-size:2.5rem;"><span id="t_cal">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1>
             <p style="color:#30d158; font-weight:bold; margin:0;"><span id="t_prot">0</span>g Prot</p>
             <div id="recipe_box" class="recipe-list">Prato vazio.</div>
+            <button type="button" onclick="undoItem()" class="btn-red" id="undo_btn" style="display:none; width:100%;">Desfazer Último Item</button>
         </div>
         <h3 class="day-header">Cenas da Biblioteca</h3>
         <div class="sug-container" style="margin-bottom:20px;">
@@ -214,12 +250,12 @@ def build_meal():
                 if(c > 0 || p > 0) addItem(n, c, p); 
                 document.getElementById('c_name').value = ''; document.getElementById('c_cal').value = ''; document.getElementById('c_prot').value = '';
             }} 
-            function removeItem(idx) {{ items.splice(idx, 1); updateUI(); }}
+            function undoItem() {{ items.pop(); updateUI(); }}
             function updateUI() {{
                 let totalCal = 0; let totalProt = 0; let htmlList = "";
                 items.forEach((it, index) => {{
                     totalCal += it.cal; totalProt += it.prot;
-                    htmlList += `<div style="display:flex; justify-content:space-between; align-items:center; background:#1c1c1e; padding:10px; border-radius:10px; margin-bottom:5px; border: 1px solid #2c2c2e;"><div style="text-align:left; font-size:0.9rem;"><b>${{it.name}}</b><br><span style="color:#8e8e93;">${{it.cal}} kcal | ${{it.prot}}g Prot</span></div><button type="button" onclick="removeItem(${{index}})" style="background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer;">✕</button></div>`;
+                    htmlList += `<div>• ${{it.name}} <span style="color:#444;">(${{it.cal}}kcal | ${{it.prot}}g)</span></div>`;
                 }});
                 document.getElementById('t_cal').innerText = totalCal; 
                 document.getElementById('t_prot').innerText = totalProt; 
@@ -227,6 +263,7 @@ def build_meal():
                 document.getElementById('form_prot').value = totalProt;
                 document.getElementById('form_recipe').value = JSON.stringify(items);
                 document.getElementById('recipe_box').innerHTML = htmlList || "Prato vazio.";
+                document.getElementById('undo_btn').style.display = items.length > 0 ? "block" : "none";
             }}
         </script>
     </body></html>
@@ -238,12 +275,15 @@ def manage_favs():
     if request.method == 'POST':
         new_c = request.form.get('new_goal')
         new_p = request.form.get('new_p_goal')
+        new_s = request.form.get('new_s_goal')
         if new_c: conn.execute("UPDATE settings SET value=? WHERE key='daily_goal'", (new_c,))
         if new_p: conn.execute("UPDATE settings SET value=? WHERE key='protein_goal'", (new_p,))
+        if new_s: conn.execute("UPDATE settings SET value=? WHERE key='step_goal'", (new_s,))
         conn.commit()
         
     goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
     goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
+    goal_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
     
     favs = conn.execute('SELECT * FROM favorites').fetchall()
     conn.close()
@@ -263,11 +303,12 @@ def manage_favs():
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <div class="card">
-            <h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS</h3>
+            <h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS GERAIS</h3>
             <form method="POST">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <input type="number" name="new_goal" value="{goal_c}" placeholder="Meta Kcal" style="margin:0; width:50%;">
-                    <input type="number" name="new_p_goal" value="{goal_p}" placeholder="Meta Prot" style="margin:0; width:50%;">
+                    <input type="number" name="new_goal" value="{goal_c}" placeholder="Kcal" style="margin:0; width:33%;">
+                    <input type="number" name="new_p_goal" value="{goal_p}" placeholder="Prot" style="margin:0; width:33%;">
+                    <input type="number" name="new_s_goal" value="{goal_s}" placeholder="Passos" style="margin:0; width:33%;">
                 </div>
                 <button type="submit" class="btn-main" style="margin:0;">ATUALIZAR OBJETIVOS</button>
             </form>
@@ -297,7 +338,6 @@ def edit_fav(fav_id):
     fav = conn.execute('SELECT * FROM favorites WHERE id=?', (fav_id,)).fetchone()
     conn.close()
     
-    # Deteta se é Refeição ou Item Simples
     is_meal = bool(fav['recipe'] and fav['recipe'] not in ('', '""', '[]'))
     recipe_data = fav['recipe'] if is_meal else "[]"
     
@@ -342,10 +382,7 @@ def edit_fav(fav_id):
                 document.getElementById('form_prot').value = tProt;
                 document.getElementById('form_recipe').value = JSON.stringify(recipe);
             }}
-            function updateItem(idx, field, val) {{
-                if(field === 'cal' || field === 'prot') val = parseInt(val) || 0;
-                recipe[idx][field] = val; renderRecipe();
-            }}
+            function updateItem(idx, field, val) {{ if(field === 'cal' || field === 'prot') val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }}
             function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }}
             function addNewItem() {{ recipe.push({{name: 'Novo Ingrediente', cal: 0, prot: 0}}); renderRecipe(); }}
             renderRecipe();
@@ -382,11 +419,30 @@ def edit_log(log_id):
 @app.route('/history')
 def history():
     conn = get_db_connection()
+    # Puxa os dados dos logs
     days = conn.execute('''SELECT date, SUM(calories) as total_c, SUM(protein) as total_p FROM logs GROUP BY date ORDER BY date DESC LIMIT 30''').fetchall()
+    
+    # Puxa os dados dos passos e as metas
+    stats = {row['date']: row['steps'] for row in conn.execute('SELECT * FROM daily_stats').fetchall()}
     goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
+    goal_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
     conn.close()
     
-    html_content = "".join([f'<div class="log-item"><div style="text-align:left;"><b style="color:#0a84ff;">{datetime.strptime(d["date"], "%Y-%m-%d").strftime("%d %b")}</b></div><div style="font-weight:bold;">{d["total_c"]} <span style="font-size:0.8rem; color:#8e8e93;">/ {goal_c} kcal</span> | {d["total_p"]}g Prot</div></div>' for d in days])
+    html_content = ""
+    for d in days:
+        date_str = d["date"]
+        steps_val = stats.get(date_str, 0)
+        steps_color = "#ff9f0a" if steps_val >= goal_s else "#8e8e93"
+        
+        html_content += f"""
+        <div class="log-item" style="display:flex; flex-direction:column; align-items:flex-start;">
+            <div style="width:100%; display:flex; justify-content:space-between; margin-bottom:8px;">
+                <b style="color:#0a84ff;">{datetime.strptime(date_str, "%Y-%m-%d").strftime("%d %b")}</b>
+                <span style="color:{steps_color}; font-size:0.85rem; font-weight:bold;">👣 {steps_val} / {goal_s}</span>
+            </div>
+            <div style="font-weight:bold;">{d["total_c"]} <span style="font-size:0.8rem; color:#8e8e93;">/ {goal_c} kcal</span> | {d["total_p"]}g Prot</div>
+        </div>
+        """
         
     return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; margin-bottom:30px;">HISTÓRICO</h2>{html_content or "<p style=\'color:#444;\'>Sem histórico.</p>"}<div class="nav-bar"><a href="/" class="nav-item"><span>🏠</span><br>HOJE</a><a href="/history" class="nav-item active"><span>📅</span><br>HISTÓRICO</a><a href="/manage_favs" class="nav-item"><span>⚙️</span><br>DEFINIÇÕES</a></div></body></html>'
 
