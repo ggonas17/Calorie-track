@@ -34,29 +34,29 @@ def home():
         total_protein += int(p_input)
 
     return f"""
+    <!DOCTYPE html>
+    <html lang="en">
     <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>CP Tracker</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <title>CP Tracker</title>
     </head>
     <body style="font-family: sans-serif; text-align: center; background: #121212; color: white; padding-top: 50px;">
-    <h1>🔥 Calorie Tracker</h1>
-    
-    <form method="POST">
-        <input type="number" name="calories" placeholder="Calories" required style="padding: 10px; margin: 5px; border-radius: 5px;">
-        <input type="number" name="protein" placeholder="Protein (g)" required style="padding: 10px; margin: 5px; border-radius: 5px;">
-        <br>
-        <button type="submit" style="padding: 10px 20px; border-radius: 10px; border: none; background: #007aff; color: white; margin-top: 10px;">
-            Add "CP" Data
-        </button>
-    </form>
-
-    <hr style="margin: 40px 20px; border: 0.5px solid #333;">
-    
-    <h2>Daily Totals:</h2>
-    <p>Calories: {total_calories} | Protein: {total_protein}g</p>
+        <h1>🔥 Calorie Tracker</h1>
+        <form method="POST">
+            <input type="number" name="calories" placeholder="Calories" required style="padding: 10px; margin: 5px; border-radius: 5px;">
+            <input type="number" name="protein" placeholder="Protein (g)" required style="padding: 10px; margin: 5px; border-radius: 5px;">
+            <br>
+            <button type="submit" style="padding: 10px 20px; border-radius: 10px; border: none; background: #007aff; color: white; margin-top: 10px;">
+                Add "CP" Data
+            </button>
+        </form>
+        <hr style="margin: 40px 20px; border: 0.5px solid #333;">
+        <h2>Daily Totals:</h2>
+        <p>Calories: {total_calories} | Protein: {total_protein}g</p>
     </body>
+    </html>
     """
 
 if __name__ == '__main__':
