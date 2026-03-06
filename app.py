@@ -14,11 +14,8 @@ def init_db():
     conn = get_db_connection()
     conn.execute('''CREATE TABLE IF NOT EXISTS logs 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, food_name TEXT, calories INTEGER, protein INTEGER, timestamp TEXT, date TEXT)''')
-    
-    # Adicionámos a coluna 'recipe' para guardar os itens que compõem uma refeição
     conn.execute('''CREATE TABLE IF NOT EXISTS favorites 
                     (id INTEGER PRIMARY KEY AUTOINCREMENT, food_name TEXT, calories INTEGER, protein INTEGER, recipe TEXT)''')
-    
     conn.execute('''CREATE TABLE IF NOT EXISTS settings 
                     (key TEXT PRIMARY KEY, value TEXT)''')
     
@@ -28,6 +25,12 @@ def init_db():
     conn.close()
 
 init_db()
+
+# Função para dar o Badge Elite
+def get_badge(recipe_str):
+    if recipe_str and recipe_str not in ('', '""', '[]'):
+        return '<span style="background:#5e5ce6; color:#fff; padding:3px 8px; border-radius:8px; font-size:0.55rem; margin-left:6px; vertical-align:middle; font-weight:900; letter-spacing:0.5px;">REFEIÇÃO</span>'
+    return '<span style="background:#3a3a3c; color:#8e8e93; padding:3px 8px; border-radius:8px; font-size:0.55rem; margin-left:6px; vertical-align:middle; font-weight:900; letter-spacing:0.5px;">ITEM</span>'
 
 CSS = """
 <style>
@@ -39,20 +42,17 @@ CSS = """
     input { background: #2c2c2e; border: none; border-radius: 12px; color: #fff; padding: 15px; margin: 8px 0; width: 90%; font-size: 16px; -webkit-appearance: none; box-sizing: border-box; }
     .btn-main { background: #0a84ff; color: #fff; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; }
     .btn-green { background: #30d158; color: #000; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; text-decoration: none; display: block; }
-    .btn-red { background: #ff453a; color: #fff; border: none; border-radius: 12px; padding: 10px; font-weight: bold; font-size: 14px; cursor: pointer; margin-top: 10px; }
     .sug-container { display: flex; overflow-x: auto; gap: 10px; padding: 10px 0; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .sug-item { background: #2c2c2e; color: #0a84ff; padding: 12px 18px; border-radius: 18px; text-decoration: none; min-width: 130px; font-size: 0.85rem; border: 1px solid #3a3a3c; flex-shrink: 0; cursor: pointer; text-align: left; }
+    .sug-item { background: #2c2c2e; color: #0a84ff; padding: 15px 18px; border-radius: 18px; text-decoration: none; min-width: 140px; font-size: 0.85rem; border: 1px solid #3a3a3c; flex-shrink: 0; cursor: pointer; text-align: left; }
     .log-item { display: flex; justify-content: space-between; align-items: center; background: #1c1c1e; padding: 16px; border-radius: 18px; margin-bottom: 12px; border: 1px solid #2c2c2e; }
     .day-header { text-align: left; color: #8e8e93; font-size: 0.8rem; text-transform: uppercase; margin: 10px 5px; letter-spacing: 1px; }
     .fav-toggle { background: #2c2c2e; padding: 14px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #8e8e93; font-size: 0.9rem; margin: 10px 0; cursor: pointer; border: 2px solid transparent; transition: 0.2s; font-weight: bold; width: 100%; box-sizing: border-box; }
     .fav-toggle.active { border-color: #30d158; color: #30d158; background: rgba(48, 209, 88, 0.1); }
     input[type="checkbox"].hidden-check { display: none; }
-    
     .progress-track { background: rgba(255,255,255,0.1); border-radius: 10px; height: 12px; width: 100%; margin: 8px 0 15px 0; overflow: hidden; }
     .progress-fill-c { background: linear-gradient(90deg, #0a84ff, #5e5ce6); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .progress-fill-p { background: linear-gradient(90deg, #30d158, #32d74b); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
-    
-    .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; }
+    .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; max-height: 250px; overflow-y: auto; }
 </style>
 """
 
@@ -79,11 +79,8 @@ def home():
     logs = conn.execute('SELECT * FROM logs WHERE date = ? ORDER BY id DESC', (today,)).fetchall()
     favs = conn.execute('SELECT * FROM favorites').fetchall()
     
-    goal_c_row = conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()
-    goal_p_row = conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()
-    
-    goal_c = int(goal_c_row['value']) if goal_c_row else 3000
-    goal_p = int(goal_p_row['value']) if goal_p_row else 150
+    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
+    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
     
     total_c = sum(log['calories'] for log in logs)
     total_p = sum(log['protein'] for log in logs)
@@ -95,7 +92,7 @@ def home():
     color_c = "#30d158" if total_c >= goal_c else "#fff"
     color_p = "#30d158" if total_p >= goal_p else "#fff"
 
-    html_favs = "".join([f"""<a href="/quick_add/{f['id']}" class="sug-item"><b>{f['food_name']}</b><br><span style="color:#8e8e93;">{f['calories']} kcal | {f['protein']}g Prot</span></a>""" for f in favs])
+    html_favs = "".join([f"""<a href="/quick_add/{f['id']}" class="sug-item"><div style="margin-bottom:5px;"><b>{f['food_name']}</b></div>{get_badge(f['recipe'])}<br><span style="color:#8e8e93; font-weight:normal; display:block; margin-top:8px;">{f['calories']} kcal | {f['protein']}g Prot</span></a>""" for f in favs])
     
     html_logs = "".join([f"""
         <div class="log-item">
@@ -107,9 +104,7 @@ def home():
         </div>""" for l in logs])
 
     return f"""
-    <!DOCTYPE html><html lang="pt">
-    <head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">{CSS}</head>
-    <body>
+    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">{CSS}</head><body>
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: left;">
             <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold;">HOJE</p>
             <h1 style="font-size: 2.5rem; margin: 5px 0 0 0; color: {color_c}; transition: color 0.3s;">
@@ -121,9 +116,7 @@ def home():
             </p>
             <div class="progress-track"><div class="progress-fill-p" style="width: {pct_p}%;"></div></div>
         </div>
-
         <a href="/build_meal" class="btn-green" style="margin-bottom: 20px;">🥗 CRIAR REFEIÇÃO COMPOSTA</a>
-
         <div class="card">
             <h3 class="day-header" style="margin-top:0;">Adição Rápida</h3>
             <div class="sug-container" style="margin-bottom: 15px;">
@@ -142,10 +135,8 @@ def home():
                 <button type="submit" class="btn-main">ADICIONAR</button>
             </form>
         </div>
-
         <h3 class="day-header">Diário de Hoje</h3>
         {html_logs}
-
         <div class="nav-bar">
             <a href="/" class="nav-item active"><span>🏠</span><br>HOJE</a>
             <a href="/history" class="nav-item"><span>📅</span><br>HISTÓRICO</a>
@@ -161,7 +152,7 @@ def build_meal():
         m_name = request.form.get('meal_name') or "Refeição Composta"
         m_cal = request.form.get('total_cal')
         m_prot = request.form.get('total_prot')
-        m_recipe = request.form.get('recipe_json') # Guarda os itens da refeição
+        m_recipe = request.form.get('recipe_json')
         save_lib = request.form.get('save_lib')
         
         now_time = datetime.now().strftime("%H:%M")
@@ -172,14 +163,13 @@ def build_meal():
         if save_lib:
             conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)', 
                          (m_name, int(m_cal), int(m_prot), m_recipe))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         return redirect(url_for('home'))
 
     favs = conn.execute('SELECT * FROM favorites').fetchall()
     conn.close()
 
-    html_sugs = "".join([f"""<div onclick="addItem('{f['food_name']}', {f['calories']}, {f['protein']})" class="sug-item"><b>+ {f['food_name']}</b><br><span style="color:#8e8e93; font-weight:normal;">{f['calories']} kcal | {f['protein']}g</span></div>""" for f in favs])
+    html_sugs = "".join([f"""<div onclick="addItem('{f['food_name']}', {f['calories']}, {f['protein']})" class="sug-item"><b>+ {f['food_name']}</b><br><span style="color:#8e8e93; font-weight:normal;">{f['calories']} kcal | {f['protein']}g Prot</span></div>""" for f in favs])
 
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
@@ -188,7 +178,6 @@ def build_meal():
             <h1 style="margin:0; font-size:2.5rem;"><span id="t_cal">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1>
             <p style="color:#30d158; font-weight:bold; margin:0;"><span id="t_prot">0</span>g Prot</p>
             <div id="recipe_box" class="recipe-list">Prato vazio.</div>
-            <button type="button" onclick="undoItem()" class="btn-red" id="undo_btn" style="display:none; width:100%;">Desfazer Último Item</button>
         </div>
         <h3 class="day-header">Cenas da Biblioteca</h3>
         <div class="sug-container" style="margin-bottom:20px;">
@@ -217,10 +206,7 @@ def build_meal():
         <a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a>
         <script>
             let items = []; 
-            function addItem(name, cal, prot) {{
-                items.push({{name: name, cal: parseInt(cal), prot: parseInt(prot)}});
-                updateUI();
-            }} 
+            function addItem(name, cal, prot) {{ items.push({{name: name, cal: parseInt(cal), prot: parseInt(prot)}}); updateUI(); }} 
             function addCustom() {{
                 let n = document.getElementById('c_name').value || 'Extra'; 
                 let c = document.getElementById('c_cal').value || 0; 
@@ -228,14 +214,12 @@ def build_meal():
                 if(c > 0 || p > 0) addItem(n, c, p); 
                 document.getElementById('c_name').value = ''; document.getElementById('c_cal').value = ''; document.getElementById('c_prot').value = '';
             }} 
-            function undoItem() {{
-                items.pop(); updateUI();
-            }}
+            function removeItem(idx) {{ items.splice(idx, 1); updateUI(); }}
             function updateUI() {{
                 let totalCal = 0; let totalProt = 0; let htmlList = "";
                 items.forEach((it, index) => {{
                     totalCal += it.cal; totalProt += it.prot;
-                    htmlList += `<div>• ${{it.name}} <span style="color:#444;">(${{it.cal}}kcal | ${{it.prot}}g)</span></div>`;
+                    htmlList += `<div style="display:flex; justify-content:space-between; align-items:center; background:#1c1c1e; padding:10px; border-radius:10px; margin-bottom:5px; border: 1px solid #2c2c2e;"><div style="text-align:left; font-size:0.9rem;"><b>${{it.name}}</b><br><span style="color:#8e8e93;">${{it.cal}} kcal | ${{it.prot}}g Prot</span></div><button type="button" onclick="removeItem(${{index}})" style="background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer;">✕</button></div>`;
                 }});
                 document.getElementById('t_cal').innerText = totalCal; 
                 document.getElementById('t_prot').innerText = totalProt; 
@@ -243,7 +227,6 @@ def build_meal():
                 document.getElementById('form_prot').value = totalProt;
                 document.getElementById('form_recipe').value = JSON.stringify(items);
                 document.getElementById('recipe_box').innerHTML = htmlList || "Prato vazio.";
-                document.getElementById('undo_btn').style.display = items.length > 0 ? "block" : "none";
             }}
         </script>
     </body></html>
@@ -259,11 +242,8 @@ def manage_favs():
         if new_p: conn.execute("UPDATE settings SET value=? WHERE key='protein_goal'", (new_p,))
         conn.commit()
         
-    goal_c_row = conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()
-    goal_p_row = conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()
-    
-    goal_c = goal_c_row['value'] if goal_c_row else 3000
-    goal_p = goal_p_row['value'] if goal_p_row else 150
+    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
+    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
     
     favs = conn.execute('SELECT * FROM favorites').fetchall()
     conn.close()
@@ -271,7 +251,7 @@ def manage_favs():
     html_favs = "".join([f"""
         <div class="log-item">
             <div style="text-align:left;">
-                <b>{f['food_name']}</b><br>
+                <b>{f['food_name']}</b> {get_badge(f['recipe'])}<br>
                 <small style="color:#8e8e93;">{f['calories']} kcal | {f['protein']}g Prot</small>
             </div>
             <div>
@@ -281,8 +261,7 @@ def manage_favs():
         </div>""" for f in favs])
         
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
-    <body>
+    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <div class="card">
             <h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS</h3>
             <form method="POST">
@@ -310,129 +289,125 @@ def edit_fav(fav_id):
         f_name = request.form.get('food_name')
         c_val = request.form.get('calories')
         p_val = request.form.get('protein')
-        conn.execute('UPDATE favorites SET food_name=?, calories=?, protein=? WHERE id=?', (f_name, int(c_val), int(p_val), fav_id))
-        conn.commit()
-        conn.close()
+        r_val = request.form.get('recipe_json', '')
+        conn.execute('UPDATE favorites SET food_name=?, calories=?, protein=?, recipe=? WHERE id=?', (f_name, int(c_val), int(p_val), r_val, fav_id))
+        conn.commit(); conn.close()
         return redirect(url_for('manage_favs'))
         
     fav = conn.execute('SELECT * FROM favorites WHERE id=?', (fav_id,)).fetchone()
     conn.close()
     
-    # Se tiver receita (json), mostra-a
-    recipe_html = ""
-    if fav['recipe'] and fav['recipe'] != '""':
-        try:
-            items = json.loads(fav['recipe'])
-            recipe_html = "<h4 style='color:#8e8e93; margin-bottom:5px; text-align:left;'>Composição:</h4><div class='recipe-list'>"
-            for it in items:
-                recipe_html += f"<div>• {it['name']} ({it['cal']}kcal | {it['prot']}g)</div>"
-            recipe_html += "</div>"
-        except:
-            pass
+    # Deteta se é Refeição ou Item Simples
+    is_meal = bool(fav['recipe'] and fav['recipe'] not in ('', '""', '[]'))
+    recipe_data = fav['recipe'] if is_meal else "[]"
     
-    return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
-    <body>
-        <h2 style="color:#8e8e93;">EDITAR FAVORITO</h2>
+    if is_meal:
+        editor_html = f"""
+        <h2 style="color:#8e8e93;">EDITAR REFEIÇÃO</h2>
+        <div class="card">
+            <form method="POST">
+                <input type="text" name="food_name" value="{fav['food_name']}" required style="font-weight:bold; font-size:1.2rem; text-align:center;">
+                <div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;">
+                    <h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1>
+                    <p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p>
+                </div>
+                <h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Ingredientes da Refeição:</h4>
+                <div id="recipe_list"></div>
+                <button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADICIONAR INGREDIENTE</button>
+                <input type="hidden" id="form_cal" name="calories" value="{fav['calories']}">
+                <input type="hidden" id="form_prot" name="protein" value="{fav['protein']}">
+                <input type="hidden" id="form_recipe" name="recipe_json" value='{recipe_data}'>
+                <button type="submit" class="btn-green" style="margin-top:30px;">GUARDAR REFEIÇÃO</button>
+            </form>
+            <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a>
+        </div>
+        <script>
+            let recipe = {recipe_data};
+            function renderRecipe() {{
+                let html = ""; let tCal = 0; let tProt = 0;
+                recipe.forEach((it, idx) => {{
+                    tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0;
+                    html += `
+                    <div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;">
+                        <input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, 'name', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;">
+                        <input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, 'cal', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;">
+                        <input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, 'prot', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;">
+                        <button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button>
+                    </div>`;
+                }});
+                document.getElementById('recipe_list').innerHTML = html;
+                document.getElementById('total_cal_display').innerText = tCal;
+                document.getElementById('total_prot_display').innerText = tProt;
+                document.getElementById('form_cal').value = tCal;
+                document.getElementById('form_prot').value = tProt;
+                document.getElementById('form_recipe').value = JSON.stringify(recipe);
+            }}
+            function updateItem(idx, field, val) {{
+                if(field === 'cal' || field === 'prot') val = parseInt(val) || 0;
+                recipe[idx][field] = val; renderRecipe();
+            }}
+            function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }}
+            function addNewItem() {{ recipe.push({{name: 'Novo Ingrediente', cal: 0, prot: 0}}); renderRecipe(); }}
+            renderRecipe();
+        </script>
+        """
+    else:
+        editor_html = f"""
+        <h2 style="color:#8e8e93;">EDITAR ITEM SIMPLES</h2>
         <div class="card">
             <form method="POST">
                 <input type="text" name="food_name" value="{fav['food_name']}" required>
                 <input type="number" name="calories" value="{fav['calories']}" required>
                 <input type="number" name="protein" value="{fav['protein']}" required>
-                {recipe_html}
                 <button type="submit" class="btn-main">GUARDAR ALTERAÇÕES</button>
             </form>
             <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a>
         </div>
-    </body></html>
-    """
+        """
+        
+    return f"<!DOCTYPE html><html lang='pt'><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{editor_html}</body></html>"
 
 @app.route('/edit_log/<int:log_id>', methods=['GET', 'POST'])
 def edit_log(log_id):
     conn = get_db_connection()
     if request.method == 'POST':
-        f_name = request.form.get('food_name')
-        c_val = request.form.get('calories')
-        p_val = request.form.get('protein')
+        f_name, c_val, p_val = request.form.get('food_name'), request.form.get('calories'), request.form.get('protein')
         conn.execute('UPDATE logs SET food_name=?, calories=?, protein=? WHERE id=?', (f_name, int(c_val), int(p_val), log_id))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         return redirect(url_for('home'))
         
-    log = conn.execute('SELECT * FROM logs WHERE id=?', (log_id,)).fetchone()
-    conn.close()
-    
-    return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <h2 style="color: #8e8e93;">EDITAR DIÁRIO</h2>
-        <div class="card">
-            <p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Registado às {log['timestamp']}</p>
-            <form method="POST">
-                <input type="text" name="food_name" value="{log['food_name']}" required>
-                <input type="number" name="calories" value="{log['calories']}" required>
-                <input type="number" name="protein" value="{log['protein']}" required>
-                <button type="submit" class="btn-main">ATUALIZAR REFEIÇÃO</button>
-            </form>
-            <a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a>
-        </div>
-    </body></html>
-    """
+    log = conn.execute('SELECT * FROM logs WHERE id=?', (log_id,)).fetchone(); conn.close()
+    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93;">EDITAR DIÁRIO</h2><div class="card"><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Registado às {log["timestamp"]}</p><form method="POST"><input type="text" name="food_name" value="{log["food_name"]}" required><input type="number" name="calories" value="{log["calories"]}" required><input type="number" name="protein" value="{log["protein"]}" required><button type="submit" class="btn-main">ATUALIZAR REFEIÇÃO</button></form><a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a></div></body></html>'
 
 @app.route('/history')
 def history():
     conn = get_db_connection()
     days = conn.execute('''SELECT date, SUM(calories) as total_c, SUM(protein) as total_p FROM logs GROUP BY date ORDER BY date DESC LIMIT 30''').fetchall()
-    goal_c_row = conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()
-    goal_c = goal_c_row['value'] if goal_c_row else 3000
+    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
     conn.close()
     
-    html_content = "".join([f"""
-        <div class="log-item">
-            <div style="text-align:left;"><b style="color:#0a84ff;">{datetime.strptime(d['date'], "%Y-%m-%d").strftime("%d %b")}</b></div>
-            <div style="font-weight:bold;">{d['total_c']} <span style="font-size:0.8rem; color:#8e8e93;">/ {goal_c} kcal</span> | {d['total_p']}g Prot</div>
-        </div>""" for d in days])
+    html_content = "".join([f'<div class="log-item"><div style="text-align:left;"><b style="color:#0a84ff;">{datetime.strptime(d["date"], "%Y-%m-%d").strftime("%d %b")}</b></div><div style="font-weight:bold;">{d["total_c"]} <span style="font-size:0.8rem; color:#8e8e93;">/ {goal_c} kcal</span> | {d["total_p"]}g Prot</div></div>' for d in days])
         
-    return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head>
-    <body>
-        <h2 style="color:#8e8e93; margin-bottom:30px;">HISTÓRICO</h2>
-        {html_content or '<p style="color:#444;">Sem histórico.</p>'}
-        <div class="nav-bar">
-            <a href="/" class="nav-item"><span>🏠</span><br>HOJE</a>
-            <a href="/history" class="nav-item active"><span>📅</span><br>HISTÓRICO</a>
-            <a href="/manage_favs" class="nav-item"><span>⚙️</span><br>DEFINIÇÕES</a>
-        </div>
-    </body></html>
-    """
+    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; margin-bottom:30px;">HISTÓRICO</h2>{html_content or "<p style=\'color:#444;\'>Sem histórico.</p>"}<div class="nav-bar"><a href="/" class="nav-item"><span>🏠</span><br>HOJE</a><a href="/history" class="nav-item active"><span>📅</span><br>HISTÓRICO</a><a href="/manage_favs" class="nav-item"><span>⚙️</span><br>DEFINIÇÕES</a></div></body></html>'
 
 @app.route('/quick_add/<int:fav_id>')
 def quick_add(fav_id):
     conn = get_db_connection()
     fav = conn.execute('SELECT * FROM favorites WHERE id=?', (fav_id,)).fetchone()
     if fav:
-        now_time = datetime.now().strftime("%H:%M")
-        today = datetime.now().strftime("%Y-%m-%d")
-        conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date) VALUES (?, ?, ?, ?, ?)', 
-                     (fav['food_name'], fav['calories'], fav['protein'], now_time, today))
+        now_time, today = datetime.now().strftime("%H:%M"), datetime.now().strftime("%Y-%m-%d")
+        conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date) VALUES (?, ?, ?, ?, ?)', (fav['food_name'], fav['calories'], fav['protein'], now_time, today))
         conn.commit()
     conn.close()
     return redirect(url_for('home'))
 
 @app.route('/delete/<int:log_id>')
 def delete_entry(log_id):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM logs WHERE id = ?', (log_id,))
-    conn.commit()
-    conn.close()
-    return redirect(url_for('home'))
+    conn = get_db_connection(); conn.execute('DELETE FROM logs WHERE id = ?', (log_id,)); conn.commit(); conn.close(); return redirect(url_for('home'))
 
 @app.route('/delete_fav/<int:fav_id>')
 def delete_fav(fav_id):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM favorites WHERE id = ?', (fav_id,))
-    conn.commit()
-    conn.close()
-    return redirect(url_for('manage_favs'))
+    conn = get_db_connection(); conn.execute('DELETE FROM favorites WHERE id = ?', (fav_id,)); conn.commit(); conn.close(); return redirect(url_for('manage_favs'))
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
