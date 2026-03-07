@@ -34,10 +34,9 @@ def init_db():
     try: conn.execute('ALTER TABLE logs ADD COLUMN recipe TEXT')
     except: pass
     
-    # OS TEUS OBJETIVOS DE PATRÃO
     defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), 
                 ('water_goal', '2.5'), ('reading_goal', '15'), ('money_goal', '300'), 
-                ('sleep_goal', '7.5'), ('gym_goal', '4'), ('run_goal', '3')]
+                ('sleep_goal', '7.5')]
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
@@ -115,7 +114,7 @@ def update_daily_stat(date, field, value, add=False):
     conn.commit(); conn.close()
 
 def get_badge(recipe_str):
-    if recipe_str and recipe_str not in ('', '""', '[]'): return '<span style="background:#5e5ce6; color:#fff; padding:3px 8px; border-radius:8px; font-size:0.55rem; margin-left:6px; vertical-align:middle; font-weight:900; letter-spacing:0.5px;">REFEIÇÃO</span>'
+    if recipe_str and recipe_str not in ('', '""', '[]'): return '<span style="background:#5e5ce6; color:#fff; padding:3px 8px; border-radius:8px; font-size:0.55rem; margin-left:6px; vertical-align:middle; font-weight:900; letter-spacing:0.5px;">MEAL</span>'
     return '<span style="background:#3a3a3c; color:#8e8e93; padding:3px 8px; border-radius:8px; font-size:0.55rem; margin-left:6px; vertical-align:middle; font-weight:900; letter-spacing:0.5px;">ITEM</span>'
 
 CSS = """
@@ -168,7 +167,7 @@ def home():
             update_daily_stat(today, 'money', request.form.get('add_money'), add=True)
             return redirect(url_for('home'))
 
-        f_name = request.form.get('food_name') or "Refeição"
+        f_name = request.form.get('food_name') or "Meal"
         c_val = request.form.get('calories')
         p_val = request.form.get('protein')
         wants_to_save = request.form.get('save_fav')
@@ -189,9 +188,9 @@ def home():
     y_sleep = step_record['sleep'] if step_record and 'sleep' in step_record.keys() else None
 
     missing_inputs = []
-    if y_steps is None: missing_inputs.append('<input type="number" name="yesterday_steps" placeholder="👣 Passos" style="width:100%; margin:0; background:#000; font-size:0.85rem;">')
-    if y_sleep is None: missing_inputs.append('<input type="text" inputmode="decimal" name="yesterday_sleep" placeholder="💤 Sono (h)" style="width:100%; margin:0; background:#000; font-size:0.85rem;">')
-    if y_water is None: missing_inputs.append('<input type="text" inputmode="decimal" name="yesterday_water" placeholder="💧 Água (L)" style="width:100%; margin:0; background:#000; font-size:0.85rem;">')
+    if y_steps is None: missing_inputs.append('<input type="number" name="yesterday_steps" placeholder="👣 Steps" style="width:100%; margin:0; background:#000; font-size:0.85rem;">')
+    if y_sleep is None: missing_inputs.append('<input type="text" inputmode="decimal" name="yesterday_sleep" placeholder="💤 Sleep (h)" style="width:100%; margin:0; background:#000; font-size:0.85rem;">')
+    if y_water is None: missing_inputs.append('<input type="text" inputmode="decimal" name="yesterday_water" placeholder="💧 Water (L)" style="width:100%; margin:0; background:#000; font-size:0.85rem;">')
 
     had_logs_yesterday = conn.execute('SELECT id FROM logs WHERE date = ? LIMIT 1', (yesterday_str,)).fetchone()
     
@@ -199,17 +198,17 @@ def home():
         inputs_html = "".join([f"<div>{i}</div>" for i in missing_inputs])
         missing_routines_html = f"""
         <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
-            <h3 style="color:#ff9f0a; margin-top:0;">📋 RELATÓRIO DE ONTEM ({yesterday_display})</h3>
-            <p style="font-size:0.85rem; color:#8e8e93; margin-top:0;">Faltam-te as rotinas de ontem. (Podes usar vírgula)</p>
+            <h3 style="color:#ff9f0a; margin-top:0;">📋 YESTERDAY'S REPORT ({yesterday_display})</h3>
+            <p style="font-size:0.85rem; color:#8e8e93; margin-top:0;">Missing yesterday's routines. (You can use commas)</p>
             <form method="POST" style="display:flex; flex-direction:column; gap:10px;">
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; width:100%;">{inputs_html}</div>
-                <button type="submit" class="btn-orange" style="margin:0;">GRAVAR ROTINAS</button>
+                <button type="submit" class="btn-orange" style="margin:0;">SAVE ROUTINES</button>
             </form>
         </div>
         """
 
     streak = get_streak(conn)
-    streak_html = f'<span style="background:rgba(255, 159, 10, 0.2); color:#ff9f0a; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold; margin-left:10px; border: 1px solid #ff9f0a;">🔥 {streak} DIAS</span>' if streak > 0 else ''
+    streak_html = f'<span style="background:rgba(255, 159, 10, 0.2); color:#ff9f0a; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold; margin-left:10px; border: 1px solid #ff9f0a;">🔥 {streak} DAYS</span>' if streak > 0 else ''
 
     logs = conn.execute('SELECT * FROM logs WHERE date = ? ORDER BY id DESC', (today,)).fetchall()
     favs = conn.execute('SELECT * FROM favorites').fetchall()
@@ -235,14 +234,14 @@ def home():
     color_p = "#30d158" if total_p >= goal_p else "#fff"
 
     html_favs = "".join([f"""<a href="/quick_add/{f['id']}" class="sug-item"><div style="margin-bottom:5px;"><b>{f['food_name']}</b></div>{get_badge(f['recipe'])}<br><span style="color:#8e8e93; font-weight:normal; display:block; margin-top:8px;">{f['calories']} kcal | {f['protein']}g Prot</span></a>""" for f in favs])
-    html_logs = "".join([f"""<div class="log-item"><div style="text-align:left;"><b>{l['food_name']}</b> {get_badge(l['recipe'])}<br><small style="color:#8e8e93;">{l['timestamp']} • {l['calories']} kcal | {l['protein']}g Prot</small></div><div><a href="/edit_log/{l['id']}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px; font-size:0.85rem;">EDITAR</a><a href="/delete/{l['id']}" style="color:#ff453a; text-decoration:none; font-weight:bold; font-size:1.1rem;">✕</a></div></div>""" for l in logs])
+    html_logs = "".join([f"""<div class="log-item"><div style="text-align:left;"><b>{l['food_name']}</b> {get_badge(l['recipe'])}<br><small style="color:#8e8e93;">{l['timestamp']} • {l['calories']} kcal | {l['protein']}g Prot</small></div><div><a href="/edit_log/{l['id']}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px; font-size:0.85rem;">EDIT</a><a href="/delete/{l['id']}" style="color:#ff453a; text-decoration:none; font-weight:bold; font-size:1.1rem;">✕</a></div></div>""" for l in logs])
 
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">{CSS}</head><body>
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">{CSS}</head><body>
         {missing_routines_html}
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: left;">
             <div style="display:flex; align-items:center; margin-bottom:5px;">
-                <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold;">HOJE</p>
+                <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold;">TODAY</p>
                 {streak_html}
             </div>
             <h1 style="font-size: 2.5rem; margin: 5px 0 0 0; color: {color_c}; transition: color 0.3s;">{total_c} <span style="font-size: 1rem; color: #8e8e93; font-weight: normal;">/ {goal_c} kcal</span></h1>
@@ -250,14 +249,14 @@ def home():
             <p style="color: {color_p}; font-weight: bold; font-size: 1.1rem; margin: 10px 0 0 0; transition: color 0.3s;">{total_p} <span style="font-size: 0.9rem; color: #8e8e93; font-weight: normal;">/ {goal_p}g Prot</span></p>
             <div class="progress-track"><div class="progress-fill-p" style="width: {pct_p}%;"></div></div>
         </div>
-        <div class="card" style="padding:15px;"><h3 class="day-header" style="margin-top:0; color:#8e8e93;">DINHEIRO GASTO HOJE 💸</h3><form method="POST" style="display:flex; gap:10px;"><input type="text" inputmode="decimal" name="add_money" placeholder="Ex: 1,50" style="flex:7; margin:0; font-size:1rem;"><button class="btn-main" style="margin:0; flex:3; padding:12px; font-size:0.9rem; background:#30d158; color:#000;">REGISTAR</button></form></div>
-        <a href="/build_meal" class="btn-green" style="margin-bottom: 20px;">🥗 CRIAR REFEIÇÃO</a>
+        <div class="card" style="padding:15px;"><h3 class="day-header" style="margin-top:0; color:#8e8e93;">MONEY SPENT TODAY 💸</h3><form method="POST" style="display:flex; gap:10px;"><input type="text" inputmode="decimal" name="add_money" placeholder="E.g., 1.50" style="flex:7; margin:0; font-size:1rem;"><button class="btn-main" style="margin:0; flex:3; padding:12px; font-size:0.9rem; background:#30d158; color:#000;">LOG</button></form></div>
+        <a href="/build_meal" class="btn-green" style="margin-bottom: 20px;">🥗 BUILD MEAL</a>
         <div class="card">
-            <h3 class="day-header" style="margin-top:0;">Adição Rápida</h3><div class="sug-container" style="margin-bottom: 15px;">{html_favs or '<p style="color:#444; font-size:0.8rem; margin-left:10px;">Sem favoritos.</p>'}</div>
-            <form method="POST"><input type="text" name="food_name" placeholder="Item"><div style="display: flex; gap: 10px;"><input type="number" name="calories" placeholder="Kcal" required style="width:50%;"><input type="number" name="protein" placeholder="Prot" required style="width:50%;"></div><label class="fav-toggle" id="fav_label"><input type="checkbox" name="save_fav" class="hidden-check" onchange="document.getElementById('fav_label').classList.toggle('active'); document.getElementById('fav_text').innerText = this.checked ? 'GUARDADO ✅' : 'Gravar';"><span id="fav_text">Gravar</span></label><button type="submit" class="btn-main">ADICIONAR</button></form>
+            <h3 class="day-header" style="margin-top:0;">Quick Add</h3><div class="sug-container" style="margin-bottom: 15px;">{html_favs or '<p style="color:#444; font-size:0.8rem; margin-left:10px;">No favorites.</p>'}</div>
+            <form method="POST"><input type="text" name="food_name" placeholder="What did you eat?"><div style="display: flex; gap: 10px;"><input type="number" name="calories" placeholder="Kcal" required style="width:50%;"><input type="number" name="protein" placeholder="Prot" required style="width:50%;"></div><label class="fav-toggle" id="fav_label"><input type="checkbox" name="save_fav" class="hidden-check" onchange="document.getElementById('fav_label').classList.toggle('active'); document.getElementById('fav_text').innerText = this.checked ? 'SAVED ✅' : 'Save to Library?';"><span id="fav_text">Save to Library?</span></label><button type="submit" class="btn-main">ADD</button></form>
         </div>
-        <h3 class="day-header">Diário de Hoje</h3>{html_logs}
-        <div class="nav-bar"><a href="/" class="nav-item active"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <h3 class="day-header">Today's Log</h3>{html_logs}
+        <div class="nav-bar"><a href="/" class="nav-item active"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
 
@@ -271,7 +270,7 @@ def history():
     y, m = target_date.year, target_date.month
     prev_m = (target_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
     next_m = (target_date.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m')
-    month_names = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    month_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     
     logs_data = conn.execute("SELECT date, SUM(calories) as c, SUM(protein) as p FROM logs GROUP BY date").fetchall()
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
@@ -280,8 +279,10 @@ def history():
     goal_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
     goal_w = float(conn.execute("SELECT value FROM settings WHERE key='water_goal'").fetchone()['value'] or 2.5)
     goal_sl = float(str(conn.execute("SELECT value FROM settings WHERE key='sleep_goal'").fetchone()['value'] or 7.5).replace(',', '.'))
-    goal_gym = int(conn.execute("SELECT value FROM settings WHERE key='gym_goal'").fetchone()['value'] or 4)
-    goal_run = int(conn.execute("SELECT value FROM settings WHERE key='run_goal'").fetchone()['value'] or 3)
+    
+    # THE HARDCODED GOALS
+    goal_gym = 4
+    goal_run = 3
     conn.close()
 
     logs_dict = {row['date']: {'c': row['c'], 'p': row['p']} for row in logs_data}
@@ -291,8 +292,8 @@ def history():
 
     today_str = datetime.now().strftime("%Y-%m-%d")
 
-    cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/history?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/history?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
-    rot_html = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+    cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/history?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/history?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+    rot_html = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
     work_html = '<div style="display:flex; flex-direction:column; gap:15px;">'
 
     week_counter = 1
@@ -384,15 +385,16 @@ def history():
                 if is_future: work_html += f'<div style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:8px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span></div>'
                 else: work_html += f'<a href="/edit_day/{d_str}?type=workout" style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span><div style="font-size:0.65rem; margin-top:2px;">{icons}</div></a>'
             work_html += "</div></div>"
+            week_counter += 1
 
     cal_html += "</div>"; rot_html += "</div>"; work_html += "</div>"
 
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">MACROS & DIÁRIO</h2><div class="card" style="padding:15px;">{cal_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Prot + Passos</div><div><span style="color:#ffd60a;">🟡</span> Só Prot</div><div><span style="color:#ff9f0a;">🟠</span> Só Passos</div><div><span style="color:#ff453a;">🔴</span> Incompleto</div><div>📝 Notas</div></div></div>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">WELL BEING</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sono + Água</div><div><span style="color:#ffd60a;">🟡</span> Só Sono</div><div><span style="color:#ff9f0a;">🟠</span> Só Água</div><div><span style="color:#ff453a;">🔴</span> Incompleto</div></div></div>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">TREINOS DA SEMANA</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Clica num dia abaixo para registares o Gym ou Corrida.</p>{work_html}</div>
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item active"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">MACROS & DIARY</h2><div class="card" style="padding:15px;">{cal_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Prot + Steps</div><div><span style="color:#ffd60a;">🟡</span> Only Prot</div><div><span style="color:#ff9f0a;">🟠</span> Only Steps</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div><div>📝 Notes</div></div></div>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">DAILY ROUTINES</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sleep + Water</div><div><span style="color:#ffd60a;">🟡</span> Only Sleep</div><div><span style="color:#ff9f0a;">🟠</span> Only Water</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div></div></div>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">WEEKLY WORKOUTS</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Click a day below to log Gym or Run.</p>{work_html}</div>
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item active"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
 
@@ -405,7 +407,7 @@ def money():
     y, m = target_date.year, target_date.month
     prev_m = (target_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
     next_m = (target_date.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m')
-    month_names = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    month_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     
     goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone()['value']
     goal_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 300.0
@@ -431,7 +433,7 @@ def money():
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdatescalendar(y, m)
 
-    cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/money?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/money?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+    cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/money?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/money?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
 
     for week in month_days:
         for day_date in week:
@@ -457,24 +459,24 @@ def money():
     if current_dynamic_avg == 0 and datetime.strptime(today_str, "%Y-%m-%d").month != m: current_dynamic_avg = goal_m / days_in_month
 
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: center;">
-            <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold; text-transform:uppercase;">TOTAL GASTO ESTE MÊS</p>
+            <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold; text-transform:uppercase;">TOTAL SPENT THIS MONTH</p>
             <h1 style="font-size: 3.5rem; margin: 5px 0; color: {color_total};">{total_spent_month:.2f}€</h1>
-            <p style="color: #8e8e93; font-size: 0.85rem; margin: 0;">Orçamento: {goal_m:.2f}€ | Resta do Mês: {(goal_m - total_spent_month):.2f}€</p>
+            <p style="color: #8e8e93; font-size: 0.85rem; margin: 0;">Budget: {goal_m:.2f}€ | Left this Month: {(goal_m - total_spent_month):.2f}€</p>
             <div style="background:#2c2c2e; padding:15px; border-radius:15px; margin-top:15px; display:flex; justify-content:space-around;">
                 <div>
-                    <p style="margin:0; font-size:0.75rem; color:#8e8e93;">MÉDIA DO DIA</p>
+                    <p style="margin:0; font-size:0.75rem; color:#8e8e93;">DAILY AVERAGE</p>
                     <p style="margin:0; font-size:1.1rem; font-weight:bold; color:#0a84ff;">{current_dynamic_avg:.2f}€</p>
                 </div>
                 <div style="border-left: 1px solid #3a3a3c; padding-left: 15px;">
-                    <p style="margin:0; font-size:0.75rem; color:#8e8e93;">RESTA PARA HOJE</p>
+                    <p style="margin:0; font-size:0.75rem; color:#8e8e93;">LEFT FOR TODAY</p>
                     <p style="margin:0; font-size:1.1rem; font-weight:bold; color:{'#30d158' if left_today >= 0 else '#ff453a'};">{left_today:.2f}€</p>
                 </div>
             </div>
         </div>
         <div class="card" style="padding:15px;">{cal_html}</div>
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
 
@@ -487,7 +489,7 @@ def rank():
     y, m = target_date.year, target_date.month
     prev_m = (target_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
     next_m = (target_date.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m')
-    month_names = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    month_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     
     logs_data = conn.execute("SELECT date, SUM(protein) as p FROM logs GROUP BY date").fetchall()
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
@@ -515,7 +517,7 @@ def rank():
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdatescalendar(y, m)
 
-    cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/rank?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/rank?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+    cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/rank?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/rank?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
 
     for week in month_days:
         for day_date in week:
@@ -549,7 +551,7 @@ def rank():
                     elif score <= 4: bg_color = "rgba(255, 159, 10, 0.5)"; txt_color = "#fff"
                     elif score <= 8: bg_color = "rgba(255, 214, 10, 0.5)"; txt_color = "#000"
                     elif score <= 11: bg_color = "rgba(48, 209, 88, 0.6)"; txt_color = "#000"
-                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff" # LENDÁRIO AZUL 12 PTS
+                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff" 
                     score_display = f"{score}"
             else: score_display = "-"
                 
@@ -561,21 +563,20 @@ def rank():
     cal_html += "</div>"
 
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: 1px solid #0a84ff; padding-bottom:10px;">
             <h2 style="color:#0a84ff; margin-top:0;">GOD RANK 🏆</h2>
-            <p style="font-size:0.8rem; color:#8e8e93; margin-bottom:0;">Avaliação Diária (0 a 12):<br>Prot (3) | Sono (2) | Passos (2)<br>Água (2) | Treino (2) | € na Média (1)</p>
+            <p style="font-size:0.8rem; color:#8e8e93; margin-bottom:0;">Daily Score (0 to 12):<br>Prot (3) | Sleep (2) | Steps (2)<br>Water (2) | Workout (2) | € in Avg (1)</p>
         </div>
         <div class="card" style="padding:15px;">{cal_html}</div>
-        <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar às Definições</a>
+        <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Back to Settings</a>
     </body></html>
     """
 
-# --- O ESCUDO DO PARSING BLINDADO ---
 def parse_val(v, is_float=False):
-    if v is None: return None # Formulário nem mandou isto
+    if v is None: return None
     v = str(v).strip()
-    if v == "": return "CLEAR" # Apagou o valor de propósito
+    if v == "": return "CLEAR"
     v = v.replace(',', '.')
     try: return float(v) if is_float else int(float(v))
     except: return "CLEAR"
@@ -637,33 +638,33 @@ def edit_day(date):
     s_run = 'checked' if stats and 'run' in stats.keys() and stats['run'] == 1 else ""
     
     display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d %b %Y")
-    html_logs = "".join([f'<div class="log-item"><div style="text-align:left;"><b>{l["food_name"]}</b> {get_badge(l["recipe"])}<br><small style="color:#8e8e93;">{l["timestamp"]} • {l["calories"]} kcal | {l["protein"]}g Prot</small></div><div><a href="/edit_log/{l["id"]}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px; font-size:0.85rem;">EDITAR</a><a href="/delete/{l["id"]}" style="color:#ff453a; text-decoration:none; font-weight:bold; font-size:1.1rem;">✕</a></div></div>' for l in logs])
+    html_logs = "".join([f'<div class="log-item"><div style="text-align:left;"><b>{l["food_name"]}</b> {get_badge(l["recipe"])}<br><small style="color:#8e8e93;">{l["timestamp"]} • {l["calories"]} kcal | {l["protein"]}g Prot</small></div><div><a href="/edit_log/{l["id"]}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px; font-size:0.85rem;">EDIT</a><a href="/delete/{l["id"]}" style="color:#ff453a; text-decoration:none; font-weight:bold; font-size:1.1rem;">✕</a></div></div>' for l in logs])
     
     if edit_type == 'macros':
-        form_content = f'<label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Calorias (Kcal):</label><input type="number" name="calories" value="{s_c}" placeholder="Auto: {logs_c} kcal" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Proteína (g):</label><input type="number" name="protein" value="{s_p}" placeholder="Auto: {logs_p} g" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#ff9f0a; font-weight:bold; font-size:0.9rem;">Passos 👣:</label><input type="number" name="steps" value="{s_s}" placeholder="Ex: 10500" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Notas do Dia 📝:</label><textarea name="notes" rows="3" placeholder="Hoje correu mal porque..." style="background:#2c2c2e; border:none; border-radius:12px; color:#fff; padding:15px; margin:0; width:100%; box-sizing:border-box; font-size:0.9rem; resize:none;">{s_n}</textarea>'
-        extra_html = f'<h3 class="day-header">DIÁRIO DESSE DIA</h3>{html_logs or "<p style=\'color:#444; font-size:0.9rem;\'>Nenhuma refeição registada.</p>"}'
-        title_top = "MACROS E NOTAS"
+        form_content = f'<label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Calories (Kcal):</label><input type="number" name="calories" value="{s_c}" placeholder="Auto: {logs_c} kcal" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Protein (g):</label><input type="number" name="protein" value="{s_p}" placeholder="Auto: {logs_p} g" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#ff9f0a; font-weight:bold; font-size:0.9rem;">Steps 👣:</label><input type="number" name="steps" value="{s_s}" placeholder="E.g., 10500" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Daily Notes 📝:</label><textarea name="notes" rows="3" placeholder="Today went wrong because..." style="background:#2c2c2e; border:none; border-radius:12px; color:#fff; padding:15px; margin:0; width:100%; box-sizing:border-box; font-size:0.9rem; resize:none;">{s_n}</textarea>'
+        extra_html = f'<h3 class="day-header">DAY\'S LOG</h3>{html_logs or "<p style=\'color:#444; font-size:0.9rem;\'>No meals logged.</p>"}'
+        title_top = "MACROS AND NOTES"
     elif edit_type == 'workout':
         form_content = f"""
         <label class="checkbox-wrapper {s_gym}" id="gym_lbl" onclick="this.classList.toggle('checked'); document.getElementById('gym_chk').checked = this.classList.contains('checked');">
-            <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''}> <span style="font-size:1.2rem;">🏋️‍♂️ Fui ao Ginásio</span>
+            <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''}> <span style="font-size:1.2rem;">🏋️‍♂️ Went to Gym</span>
         </label>
         <label class="checkbox-wrapper {s_run}" id="run_lbl" onclick="this.classList.toggle('checked'); document.getElementById('run_chk').checked = this.classList.contains('checked');">
-            <input type="checkbox" id="run_chk" name="run" {'checked' if s_run else ''}> <span style="font-size:1.2rem;">🏃 Fui Correr</span>
+            <input type="checkbox" id="run_chk" name="run" {'checked' if s_run else ''}> <span style="font-size:1.2rem;">🏃 Went Running</span>
         </label>
         """
         extra_html = ""
-        title_top = "TREINO"
+        title_top = "WORKOUT"
     elif edit_type == 'routines':
-        form_content = f'<label style="color:#e5c07b; font-weight:bold; font-size:0.9rem;">Sono 💤 (Horas):</label><input type="text" inputmode="decimal" name="sleep" value="{str(s_sl).replace(".", ",") if s_sl else ""}" placeholder="Ex: 7,5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Água 💧 (Litros):</label><input type="text" inputmode="decimal" name="water" value="{str(s_w).replace(".", ",") if s_w else ""}" placeholder="Ex: 2,5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#5e5ce6; font-weight:bold; font-size:0.9rem;">Leitura 📖 (Minutos):</label><input type="number" name="reading" value="{s_r}" placeholder="Ex: 15" style="margin:0; width:100%;">'
+        form_content = f'<label style="color:#e5c07b; font-weight:bold; font-size:0.9rem;">Sleep 💤 (Hours):</label><input type="text" inputmode="decimal" name="sleep" value="{str(s_sl).replace(".", ",") if s_sl else ""}" placeholder="E.g., 7.5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Water 💧 (Liters):</label><input type="text" inputmode="decimal" name="water" value="{str(s_w).replace(".", ",") if s_w else ""}" placeholder="E.g., 2.5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#5e5ce6; font-weight:bold; font-size:0.9rem;">Reading 📖 (Minutes):</label><input type="number" name="reading" value="{s_r}" placeholder="E.g., 20" style="margin:0; width:100%;">'
         extra_html = ""
-        title_top = "ROTINAS"
+        title_top = "ROUTINES"
     elif edit_type == 'money':
-        form_content = f'<label style="color:#30d158; font-weight:bold; font-size:0.9rem;">Dinheiro Gasto 💸 (€):</label><input type="text" inputmode="decimal" name="money" value="{str(s_m).replace(".", ",") if s_m else ""}" placeholder="Ex: 15,50" style="margin:0; width:100%;">'
+        form_content = f'<label style="color:#30d158; font-weight:bold; font-size:0.9rem;">Money Spent 💸 (€):</label><input type="text" inputmode="decimal" name="money" value="{str(s_m).replace(".", ",") if s_m else ""}" placeholder="E.g., 15.50" style="margin:0; width:100%;">'
         extra_html = ""
-        title_top = "FINANÇAS"
+        title_top = "FINANCES"
 
-    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDITAR {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin:top:20px;">GRAVAR DIA</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar atrás</a></div>{extra_html}</body></html>'
+    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDIT {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin:top:20px;">SAVE DAY</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Go Back</a></div>{extra_html}</body></html>'
 
 @app.route('/export_db')
 def export_db(): return send_file('tracker.db', as_attachment=True, download_name=f'tracker_backup_{datetime.now().strftime("%Y%m%d")}.db')
@@ -678,33 +679,32 @@ def import_db():
 def manage_favs():
     conn = get_db_connection()
     if request.method == 'POST':
-        updates = [('daily_goal', request.form.get('new_goal')), ('protein_goal', request.form.get('new_p_goal')), ('step_goal', request.form.get('new_s_goal')), ('water_goal', request.form.get('new_w_goal')), ('reading_goal', request.form.get('new_r_goal')), ('money_goal', request.form.get('new_m_goal')), ('sleep_goal', request.form.get('new_sl_goal')), ('gym_goal', request.form.get('new_g_goal')), ('run_goal', request.form.get('new_ru_goal'))]
+        updates = [('daily_goal', request.form.get('new_goal')), ('protein_goal', request.form.get('new_p_goal')), ('step_goal', request.form.get('new_s_goal')), ('water_goal', request.form.get('new_w_goal')), ('reading_goal', request.form.get('new_r_goal')), ('money_goal', request.form.get('new_m_goal')), ('sleep_goal', request.form.get('new_sl_goal'))]
         for k, v in updates:
             if v: conn.execute("UPDATE settings SET value=? WHERE key=?", (v.replace(',', '.'), k))
         conn.commit()
         
     goals = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
     favs = conn.execute('SELECT * FROM favorites').fetchall(); conn.close()
-    html_favs = "".join([f'<div class="log-item"><div style="text-align:left;"><b>{f["food_name"]}</b> {get_badge(f["recipe"])}<br><small style="color:#8e8e93;">{f["calories"]} kcal | {f["protein"]}g Prot</small></div><div><a href="/edit_fav/{f["id"]}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px;">EDITAR</a><a href="/delete_fav/{f["id"]}" style="color:#ff453a; text-decoration:none; font-weight:bold;">✕</a></div></div>' for f in favs])
+    html_favs = "".join([f'<div class="log-item"><div style="text-align:left;"><b>{f["food_name"]}</b> {get_badge(f["recipe"])}<br><small style="color:#8e8e93;">{f["calories"]} kcal | {f["protein"]}g Prot</small></div><div><a href="/edit_fav/{f["id"]}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px;">EDIT</a><a href="/delete_fav/{f["id"]}" style="color:#ff453a; text-decoration:none; font-weight:bold;">✕</a></div></div>' for f in favs])
         
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <a href="/rank" class="btn-main" style="display:block; text-decoration:none; background:linear-gradient(90deg, #0a84ff, #5e5ce6); color:#fff; font-size:1.2rem; margin-bottom:20px; padding:20px; box-shadow: 0 4px 15px rgba(10,132,255,0.4);">VER GOD RANK 🏆</a>
-        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS GERAIS</h3><form method="POST">
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+        <a href="/rank" class="btn-main" style="display:block; text-decoration:none; background:linear-gradient(90deg, #0a84ff, #5e5ce6); color:#fff; font-size:1.2rem; margin-bottom:20px; padding:20px; box-shadow: 0 4px 15px rgba(10,132,255,0.4);">SEE GOD RANK 🏆</a>
+        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">GENERAL GOALS</h3><form method="POST">
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:left;">
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Kcal</label><input type="number" name="new_goal" value="{goals.get('daily_goal', 2100)}" style="margin:0; width:100%;"></div>
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Prot (g)</label><input type="number" name="new_p_goal" value="{goals.get('protein_goal', 160)}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Passos</label><input type="number" name="new_s_goal" value="{goals.get('step_goal', 10000)}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Sono (h)</label><input type="text" inputmode="decimal" name="new_sl_goal" value="{str(goals.get('sleep_goal', 7.5)).replace('.', ',')}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Gym (Dias/Sem)</label><input type="number" name="new_g_goal" value="{goals.get('gym_goal', 4)}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Run (Dias/Sem)</label><input type="number" name="new_ru_goal" value="{goals.get('run_goal', 3)}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Água (L)</label><input type="text" inputmode="decimal" name="new_w_goal" value="{str(goals.get('water_goal', 2.5)).replace('.', ',')}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Dinheiro (€)</label><input type="text" inputmode="decimal" name="new_m_goal" value="{str(goals.get('money_goal', 300)).replace('.', ',')}" style="margin:0; width:100%;"></div>
-            </div><button type="submit" class="btn-main" style="margin-top:15px;">GRAVAR OBJETIVOS</button>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Steps</label><input type="number" name="new_s_goal" value="{goals.get('step_goal', 10000)}" style="margin:0; width:100%;"></div>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Sleep (h)</label><input type="text" inputmode="decimal" name="new_sl_goal" value="{str(goals.get('sleep_goal', 7.5)).replace('.', ',')}" style="margin:0; width:100%;"></div>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Water (L)</label><input type="text" inputmode="decimal" name="new_w_goal" value="{str(goals.get('water_goal', 2.5)).replace('.', ',')}" style="margin:0; width:100%;"></div>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Reading (Min)</label><input type="number" name="new_r_goal" value="{goals.get('reading_goal', 15)}" style="margin:0; width:100%;"></div>
+                <div style="grid-column: span 2;"><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Money (€/Month)</label><input type="text" inputmode="decimal" name="new_m_goal" value="{str(goals.get('money_goal', 300)).replace('.', ',')}" style="margin:0; width:100%;"></div>
+            </div><button type="submit" class="btn-main" style="margin-top:15px;">SAVE GOALS</button>
         </form></div>
-        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">BACKUP & RESTORE 💾</h3><a href="/export_db" class="btn-main" style="display:block; text-decoration:none; background:#5e5ce6; margin-bottom:15px;">📥 DOWNLOAD BACKUP DA APP</a><form method="POST" action="/import_db" enctype="multipart/form-data" style="border-top: 1px solid #2c2c2e; padding-top: 15px;"><p style="font-size:0.8rem; color:#8e8e93; text-align:left; margin-top:0;">Mudaste de telemóvel? Faz upload do teu '.db' aqui.</p><input type="file" name="db_file" accept=".db" required style="width:100%; margin-bottom:10px; background:#000;"><button type="submit" class="btn-red" style="margin:0; width:100%; background:#ff9f0a; color:#000;">📤 UPLOAD BACKUP</button></form></div>
-        <h3 class="day-header">EDITAR BIBLIOTECA</h3>{html_favs or "<p style='color:#444;'>Biblioteca vazia.</p>"}
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">BACKUP & RESTORE 💾</h3><a href="/export_db" class="btn-main" style="display:block; text-decoration:none; background:#5e5ce6; margin-bottom:15px;">📥 DOWNLOAD APP BACKUP</a><form method="POST" action="/import_db" enctype="multipart/form-data" style="border-top: 1px solid #2c2c2e; padding-top: 15px;"><p style="font-size:0.8rem; color:#8e8e93; text-align:left; margin-top:0;">Changed phones? Upload your '.db' file here.</p><input type="file" name="db_file" accept=".db" required style="width:100%; margin-bottom:10px; background:#000;"><button type="submit" class="btn-red" style="margin:0; width:100%; background:#ff9f0a; color:#000;">📤 RESTORE BACKUP</button></form></div>
+        <h3 class="day-header">EDIT LIBRARY</h3>{html_favs or "<p style='color:#444;'>Empty library.</p>"}
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
 
@@ -717,9 +717,9 @@ def edit_fav(fav_id):
         conn.commit(); conn.close(); return redirect(url_for('manage_favs'))
     fav = conn.execute('SELECT * FROM favorites WHERE id=?', (fav_id,)).fetchone(); conn.close()
     is_meal = bool(fav['recipe'] and fav['recipe'] not in ('', '""', '[]')); recipe_data = fav['recipe'] if is_meal else "[]"
-    if is_meal: editor_html = f'<h2 style="color:#8e8e93;">EDITAR REFEIÇÃO</h2><div class="card"><form method="POST"><input type="text" name="food_name" value="{fav["food_name"]}" required style="font-weight:bold; font-size:1.2rem; text-align:center;"><div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;"><h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p></div><h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Ingredientes da Refeição:</h4><div id="recipe_list"></div><button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADICIONAR INGREDIENTE</button><input type="hidden" id="form_cal" name="calories" value="{fav["calories"]}"><input type="hidden" id="form_prot" name="protein" value="{fav["protein"]}"><input type="hidden" id="form_recipe" name="recipe_json" value=\'{recipe_data}\'><button type="submit" class="btn-green" style="margin-top:30px;">GUARDAR REFEIÇÃO</button></form><a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a></div><script>let recipe = {recipe_data}; function renderRecipe() {{ let html = ""; let tCal = 0; let tProt = 0; recipe.forEach((it, idx) => {{ tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0; html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;"><input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, \'name\', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, \'cal\', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, \'prot\', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button></div>`; }}); document.getElementById("recipe_list").innerHTML = html; document.getElementById("total_cal_display").innerText = tCal; document.getElementById("total_prot_display").innerText = tProt; document.getElementById("form_cal").value = tCal; document.getElementById("form_prot").value = tProt; document.getElementById("form_recipe").value = JSON.stringify(recipe); }} function updateItem(idx, field, val) {{ if(field === "cal" || field === "prot") val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }} function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }} function addNewItem() {{ recipe.push({{name: "Novo Ingrediente", cal: 0, prot: 0}}); renderRecipe(); }} renderRecipe();</script>'
-    else: editor_html = f'<h2 style="color:#8e8e93;">EDITAR ITEM SIMPLES</h2><div class="card"><form method="POST"><input type="text" name="food_name" value="{fav["food_name"]}" required><input type="number" name="calories" value="{fav["calories"]}" required><input type="number" name="protein" value="{fav["protein"]}" required><button type="submit" class="btn-main">GUARDAR ALTERAÇÕES</button></form><a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a></div>'
-    return f"<!DOCTYPE html><html lang='pt'><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{editor_html}</body></html>"
+    if is_meal: editor_html = f'<h2 style="color:#8e8e93;">EDIT MEAL</h2><div class="card"><form method="POST"><input type="text" name="food_name" value="{fav["food_name"]}" required style="font-weight:bold; font-size:1.2rem; text-align:center;"><div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;"><h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p></div><h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Meal Ingredients:</h4><div id="recipe_list"></div><button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADD INGREDIENT</button><input type="hidden" id="form_cal" name="calories" value="{fav["calories"]}"><input type="hidden" id="form_prot" name="protein" value="{fav["protein"]}"><input type="hidden" id="form_recipe" name="recipe_json" value=\'{recipe_data}\'><button type="submit" class="btn-green" style="margin-top:30px;">SAVE MEAL</button></form><a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div><script>let recipe = {recipe_data}; function renderRecipe() {{ let html = ""; let tCal = 0; let tProt = 0; recipe.forEach((it, idx) => {{ tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0; html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;"><input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, \'name\', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, \'cal\', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, \'prot\', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button></div>`; }}); document.getElementById("recipe_list").innerHTML = html; document.getElementById("total_cal_display").innerText = tCal; document.getElementById("total_prot_display").innerText = tProt; document.getElementById("form_cal").value = tCal; document.getElementById("form_prot").value = tProt; document.getElementById("form_recipe").value = JSON.stringify(recipe); }} function updateItem(idx, field, val) {{ if(field === "cal" || field === "prot") val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }} function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }} function addNewItem() {{ recipe.push({{name: "New Ingredient", cal: 0, prot: 0}}); renderRecipe(); }} renderRecipe();</script>'
+    else: editor_html = f'<h2 style="color:#8e8e93;">EDIT SIMPLE ITEM</h2><div class="card"><form method="POST"><input type="text" name="food_name" value="{fav["food_name"]}" required><input type="number" name="calories" value="{fav["calories"]}" required><input type="number" name="protein" value="{fav["protein"]}" required><button type="submit" class="btn-main">SAVE CHANGES</button></form><a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div>'
+    return f"<!DOCTYPE html><html lang='en'><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{editor_html}</body></html>"
 
 @app.route('/edit_log/<int:log_id>', methods=['GET', 'POST'])
 def edit_log(log_id):
@@ -731,9 +731,9 @@ def edit_log(log_id):
         ref = request.referrer; return redirect(ref) if ref else redirect(url_for('home'))
     log = conn.execute('SELECT * FROM logs WHERE id=?', (log_id,)).fetchone(); conn.close()
     is_meal = bool(log['recipe'] and log['recipe'] not in ('', '""', '[]')); recipe_data = log['recipe'] if is_meal else "[]"
-    if is_meal: editor_html = f"""<h2 style="color:#8e8e93;">EDITAR DIÁRIO (REFEIÇÃO)</h2><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Registado às {log['timestamp']}</p><div class="card"><form method="POST"><input type="text" name="food_name" value="{log['food_name']}" required style="font-weight:bold; font-size:1.2rem; text-align:center;"><div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;"><h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p></div><h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Ingredientes:</h4><div id="recipe_list"></div><button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADICIONAR INGREDIENTE</button><input type="hidden" id="form_cal" name="calories" value="{log['calories']}"><input type="hidden" id="form_prot" name="protein" value="{log['protein']}"><input type="hidden" id="form_recipe" name="recipe_json" value='{recipe_data}'><button type="submit" class="btn-green" style="margin-top:30px;">ATUALIZAR DIÁRIO</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a></div><script>let recipe = {recipe_data}; function renderRecipe() {{ let html = ""; let tCal = 0; let tProt = 0; recipe.forEach((it, idx) => {{ tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0; html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;"><input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, 'name', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, 'cal', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, 'prot', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button></div>`; }}); document.getElementById('recipe_list').innerHTML = html; document.getElementById('total_cal_display').innerText = tCal; document.getElementById('total_prot_display').innerText = tProt; document.getElementById('form_cal').value = tCal; document.getElementById('form_prot').value = tProt; document.getElementById('form_recipe').value = JSON.stringify(recipe); }} function updateItem(idx, field, val) {{ if(field === 'cal' || field === 'prot') val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }} function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }} function addNewItem() {{ recipe.push({{name: 'Novo Ingrediente', cal: 0, prot: 0}}); renderRecipe(); }} renderRecipe();</script>"""
-    else: editor_html = f'<h2 style="color:#8e8e93;">EDITAR DIÁRIO</h2><div class="card"><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Registado às {log["timestamp"]}</p><form method="POST"><input type="text" name="food_name" value="{log["food_name"]}" required><input type="number" name="calories" value="{log["calories"]}" required><input type="number" name="protein" value="{log["protein"]}" required><button type="submit" class="btn-main">ATUALIZAR REFEIÇÃO</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a></div>'
-    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>{editor_html}</body></html>'
+    if is_meal: editor_html = f"""<h2 style="color:#8e8e93;">EDIT LOG (MEAL)</h2><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Logged at {log['timestamp']}</p><div class="card"><form method="POST"><input type="text" name="food_name" value="{log['food_name']}" required style="font-weight:bold; font-size:1.2rem; text-align:center;"><div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;"><h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p></div><h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Ingredients:</h4><div id="recipe_list"></div><button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADD INGREDIENT</button><input type="hidden" id="form_cal" name="calories" value="{log['calories']}"><input type="hidden" id="form_prot" name="protein" value="{log['protein']}"><input type="hidden" id="form_recipe" name="recipe_json" value='{recipe_data}'><button type="submit" class="btn-green" style="margin-top:30px;">UPDATE LOG</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div><script>let recipe = {recipe_data}; function renderRecipe() {{ let html = ""; let tCal = 0; let tProt = 0; recipe.forEach((it, idx) => {{ tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0; html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;"><input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, 'name', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, 'cal', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, 'prot', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button></div>`; }}); document.getElementById('recipe_list').innerHTML = html; document.getElementById('total_cal_display').innerText = tCal; document.getElementById('total_prot_display').innerText = tProt; document.getElementById('form_cal').value = tCal; document.getElementById('form_prot').value = tProt; document.getElementById('form_recipe').value = JSON.stringify(recipe); }} function updateItem(idx, field, val) {{ if(field === 'cal' || field === 'prot') val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }} function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }} function addNewItem() {{ recipe.push({{name: 'New Ingredient', cal: 0, prot: 0}}); renderRecipe(); }} renderRecipe();</script>"""
+    else: editor_html = f'<h2 style="color:#8e8e93;">EDIT LOG</h2><div class="card"><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Logged at {log["timestamp"]}</p><form method="POST"><input type="text" name="food_name" value="{log["food_name"]}" required><input type="number" name="calories" value="{log["calories"]}" required><input type="number" name="protein" value="{log["protein"]}" required><button type="submit" class="btn-main">UPDATE MEAL</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div>'
+    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>{editor_html}</body></html>'
 
 @app.route('/quick_add/<int:fav_id>')
 def quick_add(fav_id):
@@ -756,7 +756,7 @@ def delete_fav(fav_id):
 def build_meal():
     conn = get_db_connection()
     if request.method == 'POST':
-        m_name = request.form.get('meal_name') or "Refeição Composta"
+        m_name = request.form.get('meal_name') or "Compound Meal"
         m_cal = request.form.get('total_cal'); m_prot = request.form.get('total_prot'); m_recipe = request.form.get('recipe_json'); save_lib = request.form.get('save_lib')
         now_time = datetime.now().strftime("%H:%M"); today = datetime.now().strftime("%Y-%m-%d")
         conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date, recipe) VALUES (?, ?, ?, ?, ?, ?)', (m_name, int(m_cal), int(m_prot), now_time, today, m_recipe))
@@ -767,18 +767,18 @@ def build_meal():
     html_sugs = "".join([f'<div onclick="addItem(\'{f["food_name"]}\', {f["calories"]}, {f["protein"]})" class="sug-item"><b>+ {f["food_name"]}</b><br><span style="color:#8e8e93; font-weight:normal;">{f["calories"]} kcal | {f["protein"]}g Prot</span></div>' for f in favs])
 
     return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <h2 style="color: #8e8e93;">🥗 CRIAR REFEIÇÃO</h2>
-        <div class="card" style="border-color: #30d158;"><h1 style="margin:0; font-size:2.5rem;"><span id="t_cal">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="t_prot">0</span>g Prot</p><div id="recipe_box" class="recipe-list">Prato vazio.</div><button type="button" onclick="undoItem()" class="btn-red" id="undo_btn" style="display:none; width:100%;">Desfazer Último Item</button></div>
-        <h3 class="day-header">Cenas da Biblioteca</h3><div class="sug-container" style="margin-bottom:20px;">{html_sugs or '<p style="color:#444; font-size:0.8rem; margin-left:10px;">Sem favoritos.</p>'}</div>
-        <div class="card"><h3 class="day-header" style="margin-top:0;">Adicionar Extra Manual</h3><div style="display:flex; gap:10px;"><input type="text" id="c_name" placeholder="Item" style="width:40%;"><input type="number" id="c_cal" placeholder="Kcal" style="width:30%;"><input type="number" id="c_prot" placeholder="Prot" style="width:30%;"></div><button type="button" onclick="addCustom()" class="btn-main" style="background:#2c2c2e; color:#0a84ff;">+ ADICIONAR AO PRATO</button></div>
-        <form method="POST" style="margin-top:30px;"><input type="text" name="meal_name" placeholder="Nome da Refeição (ex: Almoço)" required><input type="hidden" id="form_cal" name="total_cal" value="0"><input type="hidden" id="form_prot" name="total_prot" value="0"><input type="hidden" id="form_recipe" name="recipe_json" value="[]"><label class="fav-toggle" id="meal_fav_label"><input type="checkbox" name="save_lib" class="hidden-check" onchange="document.getElementById('meal_fav_label').classList.toggle('active');"><span>Gravar na Biblioteca?</span></label><button type="submit" class="btn-green">CONFIRMAR REFEIÇÃO</button></form>
-        <a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a>
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+        <h2 style="color: #8e8e93;">🥗 BUILD MEAL</h2>
+        <div class="card" style="border-color: #30d158;"><h1 style="margin:0; font-size:2.5rem;"><span id="t_cal">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="t_prot">0</span>g Prot</p><div id="recipe_box" class="recipe-list">Empty plate.</div><button type="button" onclick="undoItem()" class="btn-red" id="undo_btn" style="display:none; width:100%;">Undo Last Item</button></div>
+        <h3 class="day-header">Library Items</h3><div class="sug-container" style="margin-bottom:20px;">{html_sugs or '<p style="color:#444; font-size:0.8rem; margin-left:10px;">No favorites.</p>'}</div>
+        <div class="card"><h3 class="day-header" style="margin-top:0;">Add Extra Manually</h3><div style="display:flex; gap:10px;"><input type="text" id="c_name" placeholder="Item" style="width:40%;"><input type="number" id="c_cal" placeholder="Kcal" style="width:30%;"><input type="number" id="c_prot" placeholder="Prot" style="width:30%;"></div><button type="button" onclick="addCustom()" class="btn-main" style="background:#2c2c2e; color:#0a84ff;">+ ADD TO PLATE</button></div>
+        <form method="POST" style="margin-top:30px;"><input type="text" name="meal_name" placeholder="Meal Name (e.g., Lunch)" required><input type="hidden" id="form_cal" name="total_cal" value="0"><input type="hidden" id="form_prot" name="total_prot" value="0"><input type="hidden" id="form_recipe" name="recipe_json" value="[]"><label class="fav-toggle" id="meal_fav_label"><input type="checkbox" name="save_lib" class="hidden-check" onchange="document.getElementById('meal_fav_label').classList.toggle('active');"><span>Save Meal to Library?</span></label><button type="submit" class="btn-green">CONFIRM MEAL</button></form>
+        <a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a>
         <script>
             let items = []; function addItem(name, cal, prot) {{ items.push({{name: name, cal: parseInt(cal), prot: parseInt(prot)}}); updateUI(); }} 
             function addCustom() {{ let n = document.getElementById('c_name').value || 'Extra'; let c = document.getElementById('c_cal').value || 0; let p = document.getElementById('c_prot').value || 0; if(c > 0 || p > 0) addItem(n, c, p); document.getElementById('c_name').value = ''; document.getElementById('c_cal').value = ''; document.getElementById('c_prot').value = ''; }} 
             function undoItem() {{ items.pop(); updateUI(); }}
-            function updateUI() {{ let totalCal = 0; let totalProt = 0; let htmlList = ""; items.forEach((it, index) => {{ totalCal += it.cal; totalProt += it.prot; htmlList += `<div>• ${{it.name}} <span style="color:#444;">(${{it.cal}}kcal | ${{it.prot}}g)</span></div>`; }}); document.getElementById('t_cal').innerText = totalCal; document.getElementById('t_prot').innerText = totalProt; document.getElementById('form_cal').value = totalCal; document.getElementById('form_prot').value = totalProt; document.getElementById('form_recipe').value = JSON.stringify(items); document.getElementById('recipe_box').innerHTML = htmlList || "Prato vazio."; document.getElementById('undo_btn').style.display = items.length > 0 ? "block" : "none"; }}
+            function updateUI() {{ let totalCal = 0; let totalProt = 0; let htmlList = ""; items.forEach((it, index) => {{ totalCal += it.cal; totalProt += it.prot; htmlList += `<div>• ${{it.name}} <span style="color:#444;">(${{it.cal}}kcal | ${{it.prot}}g)</span></div>`; }}); document.getElementById('t_cal').innerText = totalCal; document.getElementById('t_prot').innerText = totalProt; document.getElementById('form_cal').value = totalCal; document.getElementById('form_prot').value = totalProt; document.getElementById('form_recipe').value = JSON.stringify(items); document.getElementById('recipe_box').innerHTML = htmlList || "Empty plate."; document.getElementById('undo_btn').style.display = items.length > 0 ? "block" : "none"; }}
         </script>
     </body></html>
     """
