@@ -235,15 +235,28 @@ def home():
     yesterday_str = yesterday_dt.strftime("%Y-%m-%d")
     
     if request.method == 'POST':
-        if 'yesterday_steps' in request.form:
-            update_daily_stat(yesterday_str, 'steps', request.form.get('yesterday_steps'))
-            update_daily_stat(yesterday_str, 'water', request.form.get('yesterday_water'))
-            update_daily_stat(yesterday_str, 'sleep', request.form.get('yesterday_sleep'))
-            y_bib = 1 if request.form.get('yesterday_bible') == 'on' else 0
-            y_notes = request.form.get('yesterday_notes', '').strip()
-            conn.execute('UPDATE daily_stats SET bible=?, notes=? WHERE date=?', (y_bib, y_notes, yesterday_str))
-            conn.commit()
-            return redirect(url_for('home'))
+        # O SAVER SEGURO DO POP-UP MATINAL
+        if request.form.get('morning_update'):
+            row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
+            if not row: conn.execute('INSERT INTO daily_stats (date) VALUES (?)', (yesterday_str,))
+            
+            if 'yesterday_steps' in request.form:
+                v = request.form.get('yesterday_steps')
+                conn.execute('UPDATE daily_stats SET steps=? WHERE date=?', (int(v) if v else 0, yesterday_str))
+            if 'yesterday_water' in request.form:
+                v = request.form.get('yesterday_water')
+                conn.execute('UPDATE daily_stats SET water=? WHERE date=?', (float(v.replace(',', '.')) if v else 0.0, yesterday_str))
+            if 'yesterday_sleep' in request.form:
+                v = request.form.get('yesterday_sleep')
+                conn.execute('UPDATE daily_stats SET sleep=? WHERE date=?', (float(v.replace(',', '.')) if v else 0.0, yesterday_str))
+            if 'yesterday_bible_present' in request.form:
+                b = 1 if request.form.get('yesterday_bible') == 'on' else 0
+                conn.execute('UPDATE daily_stats SET bible=? WHERE date=?', (b, yesterday_str))
+            if 'yesterday_notes' in request.form:
+                n = request.form.get('yesterday_notes', '').strip()
+                conn.execute('UPDATE daily_stats SET notes=? WHERE date=?', (n, yesterday_str))
+                
+            conn.commit(); return redirect(url_for('home'))
             
         if request.form.get('add_money'):
             update_daily_stat(today, 'money', request.form.get('add_money'), add=True)
@@ -279,32 +292,43 @@ def home():
             conn.commit()
             return redirect(url_for('home'))
 
+    # LÓGICA INTELIGENTE DO POP-UP MATINAL
     has_history = conn.execute("SELECT 1 FROM daily_stats WHERE date <= ?", (yesterday_str,)).fetchone() or conn.execute("SELECT 1 FROM logs WHERE date <= ?", (yesterday_str,)).fetchone()
     missing_routines_html = ""
-    step_record = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
     
-    if (step_record is None or step_record['steps'] is None) and has_history:
-        missing_routines_html = f"""
-        <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
-            <h3 style="color:#ff9f0a; margin-top:0;">📋 YESTERDAY'S REPORT ({yesterday_dt.strftime("%d/%m")})</h3>
-            <form method="POST" style="display:flex; flex-direction:column; gap:10px;">
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                    <div><span class="input-label">Steps 👣</span><input type="number" name="yesterday_steps" placeholder="10000" style="margin:0;"></div>
-                    <div><span class="input-label">Sleep 💤 (h)</span><input type="text" inputmode="decimal" name="yesterday_sleep" placeholder="7.5" style="margin:0;"></div>
-                    <div><span class="input-label">Water 💧 (L)</span><input type="text" inputmode="decimal" name="yesterday_water" placeholder="2.5" style="margin:0;"></div>
-                    <div class="checkbox-wrapper" id="y_bible_lbl" onclick="updateDailyStat('y_bible_lbl', 'y_bible_chk')" style="margin:0; padding:15px;">
-                        <input type="checkbox" id="y_bible_chk" name="yesterday_bible"> 
-                        <span style="font-size:0.85rem;">📖 Bible</span>
+    if has_history:
+        step_record = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
+        y_steps = step_record['steps'] if step_record and 'steps' in step_record.keys() else None
+        y_sleep = step_record['sleep'] if step_record and 'sleep' in step_record.keys() else None
+        y_water = step_record['water'] if step_record and 'water' in step_record.keys() else None
+        y_bible = step_record['bible'] if step_record and 'bible' in step_record.keys() else 0
+        y_notes = step_record['notes'] if step_record and 'notes' in step_record.keys() else None
+
+        if y_steps is None or y_sleep is None or y_water is None or y_notes is None:
+            inputs_html = ""
+            if y_steps is None: inputs_html += '<div><span class="input-label">Steps 👣</span><input type="number" name="yesterday_steps" placeholder="10000" style="margin:0;"></div>'
+            if y_sleep is None: inputs_html += '<div><span class="input-label">Sleep 💤 (h)</span><input type="text" inputmode="decimal" name="yesterday_sleep" placeholder="7.5" style="margin:0;"></div>'
+            if y_water is None: inputs_html += '<div><span class="input-label">Water 💧 (L)</span><input type="text" inputmode="decimal" name="yesterday_water" placeholder="2.5" style="margin:0;"></div>'
+            if y_bible == 0: 
+                inputs_html += '<input type="hidden" name="yesterday_bible_present" value="1"><div class="checkbox-wrapper" id="y_bible_lbl" onclick="updateDailyStat(\'y_bible_lbl\', \'y_bible_chk\')" style="margin:0; padding:15px;"><input type="checkbox" id="y_bible_chk" name="yesterday_bible" style="display:none;"><span style="font-size:0.85rem;">📖 Bible</span></div>'
+            
+            notes_html = ""
+            if y_notes is None:
+                notes_html = '<div style="grid-column: 1 / -1;"><span class="input-label">Diary 📝</span><textarea name="yesterday_notes" rows="2" placeholder="How was your day? Any reflections?" style="margin:0; resize:none;"></textarea></div>'
+
+            missing_routines_html = f"""
+            <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
+                <h3 style="color:#ff9f0a; margin-top:0;">📋 YESTERDAY'S REPORT ({yesterday_dt.strftime("%d/%m")})</h3>
+                <form method="POST" style="display:flex; flex-direction:column; gap:10px;">
+                    <input type="hidden" name="morning_update" value="1">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                        {inputs_html}
+                        {notes_html}
                     </div>
-                    <div style="grid-column: 1 / -1;">
-                        <span class="input-label">Diary 📝</span>
-                        <textarea name="yesterday_notes" rows="2" placeholder="How was your day? Any reflections?" style="margin:0; resize:none;"></textarea>
-                    </div>
-                </div>
-                <button type="submit" class="btn-orange" style="margin:0;">SAVE ROUTINES</button>
-            </form>
-        </div>
-        """
+                    <button type="submit" class="btn-orange" style="margin:0;">SAVE ROUTINES</button>
+                </form>
+            </div>
+            """
 
     streak = get_streak(conn)
     streak_html = f'<span style="background:rgba(255, 159, 10, 0.2); color:#ff9f0a; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold; margin-left:10px; border: 1px solid #ff9f0a;">🔥 {streak} DAYS</span>' if streak > 0 else ''
@@ -780,7 +804,8 @@ def rank():
     g_m = float(goal_m_raw['value'].replace(',', '.')) if goal_m_raw else 300.0
     
     days_in_month = calendar.monthrange(y, m)[1]
-    
+    conn.close()
+
     logs_dict = {row['date']: {'p': row['p']} for row in logs_data}
     stats_dict = {row['date']: dict(row) for row in stats_data}
     
@@ -796,9 +821,6 @@ def rank():
     month_days = cal.monthdatescalendar(y, m)
 
     cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/rank?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/rank?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
-
-    notes_list_html = ""
-    has_notes = False
 
     for week in month_days:
         for day_date in week:
@@ -817,21 +839,31 @@ def rank():
             limit_m = day_limits.get(d_str, 0)
             
             score = 0
+            bd = []
             if not is_future:
-                if f_p >= g_p: score += 3
-                if s_sl >= g_sl: score += 2
-                if s_s >= 10000: score += 2
-                if s_w >= 2.5: score += 2
-                if s_m <= limit_m: score += 1
-                if gym_d > 0 or run_d > 0: score += 2
-                if bible_d > 0: score += 1
+                if f_p >= g_p: score += 3; bd.append("✅ Prot (+3)")
+                else: bd.append("❌ Prot (0)")
+                
+                if s_sl >= g_sl: score += 2; bd.append("✅ Sleep (+2)")
+                else: bd.append("❌ Sleep (0)")
+                
+                if s_s >= 10000: score += 2; bd.append("✅ Steps (+2)")
+                else: bd.append("❌ Steps (0)")
+                
+                if s_w >= 2.5: score += 2; bd.append("✅ Water (+2)")
+                else: bd.append("❌ Water (0)")
+                
+                if s_m <= limit_m: score += 1; bd.append("✅ Finance (+1)")
+                else: bd.append("❌ Finance (0)")
+                
+                if gym_d > 0 or run_d > 0: score += 2; bd.append("✅ Workout (+2)")
+                else: bd.append("❌ Workout (0)")
+                
+                if bible_d > 0: score += 1; bd.append("✅ Bible (+1)")
+                else: bd.append("❌ Bible (0)")
 
             bg_color = "transparent"; txt_color = "#fff"
             if not is_future and is_current_month:
-                if s_n:
-                    has_notes = True
-                    notes_list_html += f"<div style='margin-bottom:15px; border-bottom:1px solid #2c2c2e; padding-bottom:10px; text-align:left;'><b style='color:#0a84ff;'>{d_num} {month_names[m-1][:3]}</b><br><span style='color:#8e8e93; font-size:0.85rem; white-space:pre-wrap;'>{s_n}</span></div>"
-
                 has_any_data = f_p > 0 or s_sl > 0 or s_m > 0 or s_w > 0 or s_s > 0 or gym_d > 0 or run_d > 0 or bible_d > 0
                 if not has_any_data: bg_color = "transparent"; score_display = "-"
                 else:
@@ -846,12 +878,15 @@ def rank():
             opacity = "1" if is_current_month else "0.2"
             border = "2px solid #0a84ff" if d_str == today_str else "2px solid transparent"
             note_icon = ' <span style="font-size:0.6rem;">📝</span>' if s_n else ''
-            cal_html += f'<div style="background:{bg_color}; border:{border}; border-radius:10px; padding:8px 0; color:{txt_color}; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:55px; box-sizing:border-box;"><span style="font-size:0.6rem; margin-bottom:2px;">{d_num}{note_icon}</span><span style="font-weight:900; font-size:1.2rem;">{score_display}</span></div>'
-    cal_html += "</div>"
-    conn.close()
+            
+            bd_html = "<br>".join(bd)
+            safe_notes = (s_n or "No diary entry for this day.").replace('"', '&quot;').replace("'", "&#39;").replace("\n", "<br>")
+            
+            onclick_action = f'onclick="openRankModal(\'{d_num} {month_names[m-1][:3]}\', \'{score}\', \'{bd_html}\', \'{safe_notes}\')"' if not is_future else ""
+            cursor_style = "cursor:pointer;" if not is_future else ""
 
-    if not has_notes:
-        notes_list_html = "<p style='color:#444; font-size:0.85rem;'>No journal entries this month.</p>"
+            cal_html += f'<div {onclick_action} style="{cursor_style} background:{bg_color}; border:{border}; border-radius:10px; padding:8px 0; color:{txt_color}; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:55px; box-sizing:border-box;"><span style="font-size:0.6rem; margin-bottom:2px;">{d_num}{note_icon}</span><span style="font-weight:900; font-size:1.2rem;">{score_display}</span></div>'
+    cal_html += "</div>"
 
     return f"""
     <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
@@ -860,14 +895,32 @@ def rank():
             <p style="font-size:0.8rem; color:#8e8e93; margin-bottom:0;">Daily Score (0 to 13):<br>Prot (3) | Sleep (2) | Steps (2)<br>Water (2) | Workout (2) | € Avg (1) | Bible (1)</p>
         </div>
         <div class="card" style="padding:15px;">{cal_html}</div>
-        
-        <h3 class="day-header" style="margin-top:20px;">📖 Monthly Journal</h3>
-        <div class="card" style="padding:15px;">
-            {notes_list_html}
-        </div>
-        
         <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Back to Settings</a>
         {get_swipe_js(f"/rank?month={prev_m}", f"/rank?month={next_m}")}
+        
+        <div id="rank_modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:999; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
+            <div class="card" style="background:#1c1c1e; width:100%; max-width:400px; margin: 0 auto; text-align:left; border:1px solid #0a84ff; max-height:80vh; overflow-y:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3a3a3c; padding-bottom:10px; margin-bottom:15px;">
+                    <h2 id="modal_date" style="margin:0; color:#0a84ff;">Date</h2>
+                    <h2 style="margin:0; color:#fff;"><span id="modal_score">0</span><span style="font-size:1rem; color:#8e8e93;">/13</span></h2>
+                </div>
+                <h4 style="color:#8e8e93; margin-top:0; margin-bottom:10px;">🏆 Score Breakdown</h4>
+                <div id="modal_breakdown" style="font-size:0.9rem; line-height:1.6; margin-bottom:20px; background:#000; padding:15px; border-radius:12px; color:#fff;"></div>
+                <h4 style="color:#8e8e93; margin-top:0; margin-bottom:10px;">📝 Diary</h4>
+                <div id="modal_diary" style="font-size:0.9rem; line-height:1.5; color:#fff; background:#2c2c2e; padding:15px; border-radius:12px; font-style:italic;"></div>
+                <button type="button" onclick="document.getElementById('rank_modal').style.display='none'" class="btn-main" style="margin-top:20px;">CLOSE</button>
+            </div>
+        </div>
+        
+        <script>
+            function openRankModal(date, score, breakdown, diary) {{
+                document.getElementById('modal_date').innerText = date;
+                document.getElementById('modal_score').innerText = score;
+                document.getElementById('modal_breakdown').innerHTML = breakdown;
+                document.getElementById('modal_diary').innerHTML = diary;
+                document.getElementById('rank_modal').style.display = 'flex';
+            }}
+        </script>
     </body></html>
     """
 
@@ -925,9 +978,7 @@ def edit_day(date):
         
     logs = conn.execute('SELECT * FROM logs WHERE date = ? ORDER BY id DESC', (date,)).fetchall()
     stats = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
-    
-    routine = get_routine_for_date(conn, date)
-    conn.close()
+    routine = get_routine_for_date(conn, date); conn.close()
     
     wd = str(datetime.strptime(date, "%Y-%m-%d").weekday())
     logs_c = sum(l['calories'] for l in logs); logs_p = sum(l['protein'] for l in logs)
@@ -1008,7 +1059,7 @@ def edit_day(date):
         extra_html = ""
         title_top = "FINANCES"
 
-    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDIT {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin:top:20px;">SAVE DAY</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Go Back</a></div>{extra_html}</body></html>'
+    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDIT {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin-top:20px;">SAVE DAY</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Go Back</a></div>{extra_html}</body></html>'
 
 @app.route('/routine', methods=['GET', 'POST'])
 def routine():
@@ -1111,6 +1162,6 @@ def manage_favs():
         <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
-    
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
