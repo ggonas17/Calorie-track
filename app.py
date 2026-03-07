@@ -240,7 +240,8 @@ def home():
             update_daily_stat(yesterday_str, 'water', request.form.get('yesterday_water'))
             update_daily_stat(yesterday_str, 'sleep', request.form.get('yesterday_sleep'))
             y_bib = 1 if request.form.get('yesterday_bible') == 'on' else 0
-            conn.execute('UPDATE daily_stats SET bible=? WHERE date=?', (y_bib, yesterday_str))
+            y_notes = request.form.get('yesterday_notes', '').strip()
+            conn.execute('UPDATE daily_stats SET bible=?, notes=? WHERE date=?', (y_bib, y_notes, yesterday_str))
             conn.commit()
             return redirect(url_for('home'))
             
@@ -294,6 +295,10 @@ def home():
                     <div class="checkbox-wrapper" id="y_bible_lbl" onclick="updateDailyStat('y_bible_lbl', 'y_bible_chk')" style="margin:0; padding:15px;">
                         <input type="checkbox" id="y_bible_chk" name="yesterday_bible"> 
                         <span style="font-size:0.85rem;">📖 Bible</span>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <span class="input-label">Diary 📝</span>
+                        <textarea name="yesterday_notes" rows="2" placeholder="How was your day? Any reflections?" style="margin:0; resize:none;"></textarea>
                     </div>
                 </div>
                 <button type="submit" class="btn-orange" style="margin:0;">SAVE ROUTINES</button>
@@ -775,8 +780,7 @@ def rank():
     g_m = float(goal_m_raw['value'].replace(',', '.')) if goal_m_raw else 300.0
     
     days_in_month = calendar.monthrange(y, m)[1]
-    conn.close()
-
+    
     logs_dict = {row['date']: {'p': row['p']} for row in logs_data}
     stats_dict = {row['date']: dict(row) for row in stats_data}
     
@@ -792,6 +796,9 @@ def rank():
     month_days = cal.monthdatescalendar(y, m)
 
     cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/rank?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/rank?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+
+    notes_list_html = ""
+    has_notes = False
 
     for week in month_days:
         for day_date in week:
@@ -821,6 +828,10 @@ def rank():
 
             bg_color = "transparent"; txt_color = "#fff"
             if not is_future and is_current_month:
+                if s_n:
+                    has_notes = True
+                    notes_list_html += f"<div style='margin-bottom:15px; border-bottom:1px solid #2c2c2e; padding-bottom:10px; text-align:left;'><b style='color:#0a84ff;'>{d_num} {month_names[m-1][:3]}</b><br><span style='color:#8e8e93; font-size:0.85rem; white-space:pre-wrap;'>{s_n}</span></div>"
+
                 has_any_data = f_p > 0 or s_sl > 0 or s_m > 0 or s_w > 0 or s_s > 0 or gym_d > 0 or run_d > 0 or bible_d > 0
                 if not has_any_data: bg_color = "transparent"; score_display = "-"
                 else:
@@ -837,6 +848,10 @@ def rank():
             note_icon = ' <span style="font-size:0.6rem;">📝</span>' if s_n else ''
             cal_html += f'<div style="background:{bg_color}; border:{border}; border-radius:10px; padding:8px 0; color:{txt_color}; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:55px; box-sizing:border-box;"><span style="font-size:0.6rem; margin-bottom:2px;">{d_num}{note_icon}</span><span style="font-weight:900; font-size:1.2rem;">{score_display}</span></div>'
     cal_html += "</div>"
+    conn.close()
+
+    if not has_notes:
+        notes_list_html = "<p style='color:#444; font-size:0.85rem;'>No journal entries this month.</p>"
 
     return f"""
     <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
@@ -845,6 +860,12 @@ def rank():
             <p style="font-size:0.8rem; color:#8e8e93; margin-bottom:0;">Daily Score (0 to 13):<br>Prot (3) | Sleep (2) | Steps (2)<br>Water (2) | Workout (2) | € Avg (1) | Bible (1)</p>
         </div>
         <div class="card" style="padding:15px;">{cal_html}</div>
+        
+        <h3 class="day-header" style="margin-top:20px;">📖 Monthly Journal</h3>
+        <div class="card" style="padding:15px;">
+            {notes_list_html}
+        </div>
+        
         <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Back to Settings</a>
         {get_swipe_js(f"/rank?month={prev_m}", f"/rank?month={next_m}")}
     </body></html>
@@ -1002,7 +1023,6 @@ def routine():
         conn.commit(); conn.close()
         return redirect(url_for('manage_favs'))
 
-    # O RADAR DE OVERLAP PARA O JAVASCRIPT
     ex_rt = conn.execute("SELECT start_date, end_date FROM routines").fetchall()
     overlap_data = json.dumps([{"s": r["start_date"], "e": r["end_date"]} for r in ex_rt])
 
@@ -1050,13 +1070,10 @@ def routine():
                 let s = document.getElementById('start_date').value;
                 let end = document.getElementById('end_date').value;
                 if(!s) s = "2000-01-01"; if(!end) end = "2099-12-31";
-                
                 let hasOverlap = existing.some(r => {{ return (s <= r.e && end >= r.s); }});
-                
                 if(hasOverlap) {{
                     if(!confirm("⚠️ AVISO: Já tens uma rotina a passar por estes dias. Queres mesmo sobrepor as datas e criar esta nova?")) {{
-                        e.preventDefault();
-                        return false;
+                        e.preventDefault(); return false;
                     }}
                 }}
                 return true;
@@ -1094,6 +1111,6 @@ def manage_favs():
         <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
-
+    
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
