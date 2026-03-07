@@ -23,11 +23,10 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
                     (date TEXT PRIMARY KEY, steps INTEGER, calories INTEGER, protein INTEGER)''')
     
-    # Bateria de Proteções e Novas Colunas
     columns = [
         'calories INTEGER', 'protein INTEGER', 'water REAL', 'reading INTEGER', 
         'money REAL', 'sleep REAL', 'gym INTEGER DEFAULT 0', 'run INTEGER DEFAULT 0',
-        'notes TEXT' # O NOVO DIÁRIO PESSOAL
+        'notes TEXT'
     ]
     for col in columns:
         try: conn.execute(f'ALTER TABLE daily_stats ADD COLUMN {col}')
@@ -35,9 +34,10 @@ def init_db():
     try: conn.execute('ALTER TABLE logs ADD COLUMN recipe TEXT')
     except: pass
     
-    defaults = [('daily_goal', '3000'), ('protein_goal', '150'), ('step_goal', '10000'), 
-                ('water_goal', '2.5'), ('reading_goal', '20'), ('money_goal', '500'), 
-                ('sleep_goal', '8'), ('gym_goal', '4'), ('run_goal', '3')]
+    # OS TEUS OBJETIVOS DE PATRÃO
+    defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), 
+                ('water_goal', '2.5'), ('reading_goal', '15'), ('money_goal', '300'), 
+                ('sleep_goal', '7.5'), ('gym_goal', '4'), ('run_goal', '3')]
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
@@ -46,12 +46,11 @@ def init_db():
 
 init_db()
 
-# --- MOTOR DE STREAKS (FIRE) ---
 def get_streak(conn):
     goals = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
-    g_p = int(goals.get('protein_goal', 150)); g_s = int(goals.get('step_goal', 10000))
-    g_w = float(goals.get('water_goal', 2.5)); g_sl = float(str(goals.get('sleep_goal', 8)).replace(',', '.'))
-    g_m = float(str(goals.get('money_goal', 500)).replace(',', '.'))
+    g_p = int(goals.get('protein_goal', 160)); g_s = int(goals.get('step_goal', 10000))
+    g_w = float(goals.get('water_goal', 2.5)); g_sl = float(str(goals.get('sleep_goal', 7.5)).replace(',', '.'))
+    g_m = float(str(goals.get('money_goal', 300)).replace(',', '.'))
 
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
     logs_data = conn.execute("SELECT date, SUM(protein) as p FROM logs GROUP BY date").fetchall()
@@ -91,10 +90,9 @@ def get_streak(conn):
         if s_m <= limit_m: score += 1
         if gym_d > 0 or run_d > 0: score += 2
         
-        if score >= 8:
-            streak += 1
+        if score >= 8: streak += 1
         else:
-            if not is_first_day: break # Quebrou o streak nos dias passados
+            if not is_first_day: break
                 
         is_first_day = False
         check_date -= timedelta(days=1)
@@ -210,15 +208,14 @@ def home():
         </div>
         """
 
-    # O FOGO DIÁRIO (STREAKS)
     streak = get_streak(conn)
     streak_html = f'<span style="background:rgba(255, 159, 10, 0.2); color:#ff9f0a; padding:4px 10px; border-radius:12px; font-size:0.8rem; font-weight:bold; margin-left:10px; border: 1px solid #ff9f0a;">🔥 {streak} DIAS</span>' if streak > 0 else ''
 
     logs = conn.execute('SELECT * FROM logs WHERE date = ? ORDER BY id DESC', (today,)).fetchall()
     favs = conn.execute('SELECT * FROM favorites').fetchall()
     
-    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 3000)
-    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
+    goal_c = int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 2100)
+    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 160)
     
     today_stats = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (today,)).fetchone()
     today_stats_c = today_stats['calories'] if today_stats and 'calories' in today_stats.keys() and today_stats['calories'] is not None else None
@@ -226,6 +223,7 @@ def home():
     
     calc_c = sum(log['calories'] for log in logs)
     calc_p = sum(log['protein'] for log in logs)
+    
     total_c = today_stats_c if today_stats_c is not None else calc_c
     total_p = today_stats_p if today_stats_p is not None else calc_p
     conn.close()
@@ -253,13 +251,13 @@ def home():
             <div class="progress-track"><div class="progress-fill-p" style="width: {pct_p}%;"></div></div>
         </div>
         <div class="card" style="padding:15px;"><h3 class="day-header" style="margin-top:0; color:#8e8e93;">DINHEIRO GASTO HOJE 💸</h3><form method="POST" style="display:flex; gap:10px;"><input type="text" inputmode="decimal" name="add_money" placeholder="Ex: 1,50" style="flex:7; margin:0; font-size:1rem;"><button class="btn-main" style="margin:0; flex:3; padding:12px; font-size:0.9rem; background:#30d158; color:#000;">REGISTAR</button></form></div>
-        <a href="/build_meal" class="btn-green" style="margin-bottom: 20px;">🥗 CRIAR REFEIÇÃO COMPOSTA</a>
+        <a href="/build_meal" class="btn-green" style="margin-bottom: 20px;">🥗 CRIAR REFEIÇÃO</a>
         <div class="card">
             <h3 class="day-header" style="margin-top:0;">Adição Rápida</h3><div class="sug-container" style="margin-bottom: 15px;">{html_favs or '<p style="color:#444; font-size:0.8rem; margin-left:10px;">Sem favoritos.</p>'}</div>
-            <form method="POST"><input type="text" name="food_name" placeholder="O que comeste?"><div style="display: flex; gap: 10px;"><input type="number" name="calories" placeholder="Kcal" required style="width:50%;"><input type="number" name="protein" placeholder="Prot" required style="width:50%;"></div><label class="fav-toggle" id="fav_label"><input type="checkbox" name="save_fav" class="hidden-check" onchange="document.getElementById('fav_label').classList.toggle('active'); document.getElementById('fav_text').innerText = this.checked ? 'A GRAVAR NA BIBLIOTECA ✅' : 'Gravar na Biblioteca?';"><span id="fav_text">Gravar na Biblioteca?</span></label><button type="submit" class="btn-main">ADICIONAR</button></form>
+            <form method="POST"><input type="text" name="food_name" placeholder="Item"><div style="display: flex; gap: 10px;"><input type="number" name="calories" placeholder="Kcal" required style="width:50%;"><input type="number" name="protein" placeholder="Prot" required style="width:50%;"></div><label class="fav-toggle" id="fav_label"><input type="checkbox" name="save_fav" class="hidden-check" onchange="document.getElementById('fav_label').classList.toggle('active'); document.getElementById('fav_text').innerText = this.checked ? 'GUARDADO ✅' : 'Gravar';"><span id="fav_text">Gravar</span></label><button type="submit" class="btn-main">ADICIONAR</button></form>
         </div>
         <h3 class="day-header">Diário de Hoje</h3>{html_logs}
-        <div class="nav-bar"><a href="/" class="nav-item active"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <div class="nav-bar"><a href="/" class="nav-item active"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
     </body></html>
     """
 
@@ -278,10 +276,10 @@ def history():
     logs_data = conn.execute("SELECT date, SUM(calories) as c, SUM(protein) as p FROM logs GROUP BY date").fetchall()
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
     
-    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
+    goal_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 160)
     goal_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
     goal_w = float(conn.execute("SELECT value FROM settings WHERE key='water_goal'").fetchone()['value'] or 2.5)
-    goal_sl = float(conn.execute("SELECT value FROM settings WHERE key='sleep_goal'").fetchone()['value'] or 8)
+    goal_sl = float(str(conn.execute("SELECT value FROM settings WHERE key='sleep_goal'").fetchone()['value'] or 7.5).replace(',', '.'))
     goal_gym = int(conn.execute("SELECT value FROM settings WHERE key='gym_goal'").fetchone()['value'] or 4)
     goal_run = int(conn.execute("SELECT value FROM settings WHERE key='run_goal'").fetchone()['value'] or 3)
     conn.close()
@@ -392,9 +390,9 @@ def history():
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <h2 style="color:#8e8e93; margin-bottom:10px;">MACROS & DIÁRIO</h2><div class="card" style="padding:15px;">{cal_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Prot + Passos</div><div><span style="color:#ffd60a;">🟡</span> Só Prot</div><div><span style="color:#ff9f0a;">🟠</span> Só Passos</div><div><span style="color:#ff453a;">🔴</span> Incompleto</div><div>📝 Notas</div></div></div>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">ROTINAS DIÁRIAS</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sono + Água</div><div><span style="color:#ffd60a;">🟡</span> Só Sono</div><div><span style="color:#ff9f0a;">🟠</span> Só Água</div><div><span style="color:#ff453a;">🔴</span> Incompleto</div></div></div>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">WELL BEING</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sono + Água</div><div><span style="color:#ffd60a;">🟡</span> Só Sono</div><div><span style="color:#ff9f0a;">🟠</span> Só Água</div><div><span style="color:#ff453a;">🔴</span> Incompleto</div></div></div>
         <h2 style="color:#8e8e93; margin-bottom:10px;">TREINOS DA SEMANA</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Clica num dia abaixo para registares o Gym ou Corrida.</p>{work_html}</div>
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item active"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item active"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
     </body></html>
     """
 
@@ -410,7 +408,7 @@ def money():
     month_names = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
     
     goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone()['value']
-    goal_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 500.0
+    goal_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 300.0
     stats_data = conn.execute("SELECT * FROM daily_stats WHERE date LIKE ?", (f"{y}-{m:02d}-%",)).fetchall()
     conn.close()
     
@@ -476,7 +474,7 @@ def money():
             </div>
         </div>
         <div class="card" style="padding:15px;">{cal_html}</div>
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
     </body></html>
     """
 
@@ -494,12 +492,12 @@ def rank():
     logs_data = conn.execute("SELECT date, SUM(protein) as p FROM logs GROUP BY date").fetchall()
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
     
-    g_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 150)
+    g_p = int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 160)
     g_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
     g_w = float(conn.execute("SELECT value FROM settings WHERE key='water_goal'").fetchone()['value'] or 2.5)
-    g_sl = float(conn.execute("SELECT value FROM settings WHERE key='sleep_goal'").fetchone()['value'] or 8)
+    g_sl = float(str(conn.execute("SELECT value FROM settings WHERE key='sleep_goal'").fetchone()['value'] or 7.5).replace(',', '.'))
     goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone()['value']
-    g_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 500.0
+    g_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 300.0
     days_in_month = calendar.monthrange(y, m)[1]
     conn.close()
 
@@ -527,7 +525,6 @@ def rank():
             l_p = logs_dict.get(d_str, {}).get('p', 0)
             s_row = stats_dict.get(d_str, {})
             s_p = s_row.get('protein'); s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0; s_m = s_row.get('money') or 0
-            s_n = s_row.get('notes')
             gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
             
             f_p = s_p if s_p is not None else l_p
@@ -558,9 +555,8 @@ def rank():
                 
             opacity = "1" if is_current_month else "0.2"
             border = "2px solid #0a84ff" if d_str == today_str else "2px solid transparent"
-            note_icon = ' <span style="font-size:0.6rem;">📝</span>' if s_n else ''
             
-            cal_html += f'<div style="background:{bg_color}; border:{border}; border-radius:10px; padding:8px 0; color:{txt_color}; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:55px; box-sizing:border-box;"><span style="font-size:0.6rem; margin-bottom:2px;">{d_num}{note_icon}</span><span style="font-weight:900; font-size:1.2rem;">{score_display}</span></div>'
+            cal_html += f'<div style="background:{bg_color}; border:{border}; border-radius:10px; padding:8px 0; color:{txt_color}; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:55px; box-sizing:border-box;"><span style="font-size:0.6rem; margin-bottom:2px;">{d_num}</span><span style="font-weight:900; font-size:1.2rem;">{score_display}</span></div>'
             
     cal_html += "</div>"
 
@@ -649,17 +645,17 @@ def edit_day(date):
         title_top = "MACROS E NOTAS"
     elif edit_type == 'workout':
         form_content = f"""
-        <label class="checkbox-wrapper {s_gym}" id="gym_lbl">
-            <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''} onchange="document.getElementById('gym_lbl').classList.toggle('checked', this.checked)"> <span style="font-size:1.2rem;">🏋️‍♂️ Fui ao Ginásio</span>
+        <label class="checkbox-wrapper {s_gym}" id="gym_lbl" onclick="this.classList.toggle('checked'); document.getElementById('gym_chk').checked = this.classList.contains('checked');">
+            <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''}> <span style="font-size:1.2rem;">🏋️‍♂️ Fui ao Ginásio</span>
         </label>
-        <label class="checkbox-wrapper {s_run}" id="run_lbl">
-            <input type="checkbox" id="run_chk" name="run" {'checked' if s_run else ''} onchange="document.getElementById('run_lbl').classList.toggle('checked', this.checked)"> <span style="font-size:1.2rem;">🏃 Fui Correr</span>
+        <label class="checkbox-wrapper {s_run}" id="run_lbl" onclick="this.classList.toggle('checked'); document.getElementById('run_chk').checked = this.classList.contains('checked');">
+            <input type="checkbox" id="run_chk" name="run" {'checked' if s_run else ''}> <span style="font-size:1.2rem;">🏃 Fui Correr</span>
         </label>
         """
         extra_html = ""
         title_top = "TREINO"
     elif edit_type == 'routines':
-        form_content = f'<label style="color:#e5c07b; font-weight:bold; font-size:0.9rem;">Sono 💤 (Horas):</label><input type="text" inputmode="decimal" name="sleep" value="{str(s_sl).replace(".", ",") if s_sl else ""}" placeholder="Ex: 7,5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Água 💧 (Litros):</label><input type="text" inputmode="decimal" name="water" value="{str(s_w).replace(".", ",") if s_w else ""}" placeholder="Ex: 2,5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#5e5ce6; font-weight:bold; font-size:0.9rem;">Leitura 📖 (Minutos):</label><input type="number" name="reading" value="{s_r}" placeholder="Ex: 20" style="margin:0; width:100%;">'
+        form_content = f'<label style="color:#e5c07b; font-weight:bold; font-size:0.9rem;">Sono 💤 (Horas):</label><input type="text" inputmode="decimal" name="sleep" value="{str(s_sl).replace(".", ",") if s_sl else ""}" placeholder="Ex: 7,5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Água 💧 (Litros):</label><input type="text" inputmode="decimal" name="water" value="{str(s_w).replace(".", ",") if s_w else ""}" placeholder="Ex: 2,5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#5e5ce6; font-weight:bold; font-size:0.9rem;">Leitura 📖 (Minutos):</label><input type="number" name="reading" value="{s_r}" placeholder="Ex: 15" style="margin:0; width:100%;">'
         extra_html = ""
         title_top = "ROTINAS"
     elif edit_type == 'money':
@@ -694,21 +690,21 @@ def manage_favs():
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <a href="/rank" class="btn-main" style="display:block; text-decoration:none; background:linear-gradient(90deg, #0a84ff, #5e5ce6); color:#fff; font-size:1.2rem; margin-bottom:20px; padding:20px; box-shadow: 0 4px 15px rgba(10,132,255,0.4);">VER GOD RANK 🏆</a>
-        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">METAS GERAIS</h3><form method="POST">
+        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">OBJETIVOS GERAIS</h3><form method="POST">
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:left;">
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Kcal</label><input type="number" name="new_goal" value="{goals.get('daily_goal', 3000)}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Prot (g)</label><input type="number" name="new_p_goal" value="{goals.get('protein_goal', 150)}" style="margin:0; width:100%;"></div>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Kcal</label><input type="number" name="new_goal" value="{goals.get('daily_goal', 2100)}" style="margin:0; width:100%;"></div>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Prot (g)</label><input type="number" name="new_p_goal" value="{goals.get('protein_goal', 160)}" style="margin:0; width:100%;"></div>
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Passos</label><input type="number" name="new_s_goal" value="{goals.get('step_goal', 10000)}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Sono (h)</label><input type="text" inputmode="decimal" name="new_sl_goal" value="{str(goals.get('sleep_goal', 8)).replace('.', ',')}" style="margin:0; width:100%;"></div>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Sono (h)</label><input type="text" inputmode="decimal" name="new_sl_goal" value="{str(goals.get('sleep_goal', 7.5)).replace('.', ',')}" style="margin:0; width:100%;"></div>
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Gym (Dias/Sem)</label><input type="number" name="new_g_goal" value="{goals.get('gym_goal', 4)}" style="margin:0; width:100%;"></div>
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Run (Dias/Sem)</label><input type="number" name="new_ru_goal" value="{goals.get('run_goal', 3)}" style="margin:0; width:100%;"></div>
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Água (L)</label><input type="text" inputmode="decimal" name="new_w_goal" value="{str(goals.get('water_goal', 2.5)).replace('.', ',')}" style="margin:0; width:100%;"></div>
-                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Dinheiro (€)</label><input type="text" inputmode="decimal" name="new_m_goal" value="{str(goals.get('money_goal', 500)).replace('.', ',')}" style="margin:0; width:100%;"></div>
-            </div><button type="submit" class="btn-main" style="margin-top:15px;">GRAVAR METAS</button>
+                <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Dinheiro (€)</label><input type="text" inputmode="decimal" name="new_m_goal" value="{str(goals.get('money_goal', 300)).replace('.', ',')}" style="margin:0; width:100%;"></div>
+            </div><button type="submit" class="btn-main" style="margin-top:15px;">GRAVAR OBJETIVOS</button>
         </form></div>
-        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">BACKUP & RESTORE 💾</h3><a href="/export_db" class="btn-main" style="display:block; text-decoration:none; background:#5e5ce6; margin-bottom:15px;">📥 SACAR BACKUP DA APP</a><form method="POST" action="/import_db" enctype="multipart/form-data" style="border-top: 1px solid #2c2c2e; padding-top: 15px;"><p style="font-size:0.8rem; color:#8e8e93; text-align:left; margin-top:0;">Mudaste de telemóvel? Faz upload do teu '.db' aqui.</p><input type="file" name="db_file" accept=".db" required style="width:100%; margin-bottom:10px; background:#000;"><button type="submit" class="btn-red" style="margin:0; width:100%; background:#ff9f0a; color:#000;">📤 RESTAURAR BACKUP</button></form></div>
+        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">BACKUP & RESTORE 💾</h3><a href="/export_db" class="btn-main" style="display:block; text-decoration:none; background:#5e5ce6; margin-bottom:15px;">📥 DOWNLOAD BACKUP DA APP</a><form method="POST" action="/import_db" enctype="multipart/form-data" style="border-top: 1px solid #2c2c2e; padding-top: 15px;"><p style="font-size:0.8rem; color:#8e8e93; text-align:left; margin-top:0;">Mudaste de telemóvel? Faz upload do teu '.db' aqui.</p><input type="file" name="db_file" accept=".db" required style="width:100%; margin-bottom:10px; background:#000;"><button type="submit" class="btn-red" style="margin:0; width:100%; background:#ff9f0a; color:#000;">📤 UPLOAD BACKUP</button></form></div>
         <h3 class="day-header">EDITAR BIBLIOTECA</h3>{html_favs or "<p style='color:#444;'>Biblioteca vazia.</p>"}
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROTINAS</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
     </body></html>
     """
 
@@ -772,11 +768,11 @@ def build_meal():
 
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <h2 style="color: #8e8e93;">MONTAR PRATO</h2>
+        <h2 style="color: #8e8e93;">🥗 CRIAR REFEIÇÃO</h2>
         <div class="card" style="border-color: #30d158;"><h1 style="margin:0; font-size:2.5rem;"><span id="t_cal">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="t_prot">0</span>g Prot</p><div id="recipe_box" class="recipe-list">Prato vazio.</div><button type="button" onclick="undoItem()" class="btn-red" id="undo_btn" style="display:none; width:100%;">Desfazer Último Item</button></div>
         <h3 class="day-header">Cenas da Biblioteca</h3><div class="sug-container" style="margin-bottom:20px;">{html_sugs or '<p style="color:#444; font-size:0.8rem; margin-left:10px;">Sem favoritos.</p>'}</div>
         <div class="card"><h3 class="day-header" style="margin-top:0;">Adicionar Extra Manual</h3><div style="display:flex; gap:10px;"><input type="text" id="c_name" placeholder="Item" style="width:40%;"><input type="number" id="c_cal" placeholder="Kcal" style="width:30%;"><input type="number" id="c_prot" placeholder="Prot" style="width:30%;"></div><button type="button" onclick="addCustom()" class="btn-main" style="background:#2c2c2e; color:#0a84ff;">+ ADICIONAR AO PRATO</button></div>
-        <form method="POST" style="margin-top:30px;"><input type="text" name="meal_name" placeholder="Nome da Refeição (ex: Almoço)" required><input type="hidden" id="form_cal" name="total_cal" value="0"><input type="hidden" id="form_prot" name="total_prot" value="0"><input type="hidden" id="form_recipe" name="recipe_json" value="[]"><label class="fav-toggle" id="meal_fav_label"><input type="checkbox" name="save_lib" class="hidden-check" onchange="document.getElementById('meal_fav_label').classList.toggle('active');"><span>Guardar Refeição na Biblioteca?</span></label><button type="submit" class="btn-green">CONFIRMAR REFEIÇÃO</button></form>
+        <form method="POST" style="margin-top:30px;"><input type="text" name="meal_name" placeholder="Nome da Refeição (ex: Almoço)" required><input type="hidden" id="form_cal" name="total_cal" value="0"><input type="hidden" id="form_prot" name="total_prot" value="0"><input type="hidden" id="form_recipe" name="recipe_json" value="[]"><label class="fav-toggle" id="meal_fav_label"><input type="checkbox" name="save_lib" class="hidden-check" onchange="document.getElementById('meal_fav_label').classList.toggle('active');"><span>Gravar na Biblioteca?</span></label><button type="submit" class="btn-green">CONFIRMAR REFEIÇÃO</button></form>
         <a href="/" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancelar</a>
         <script>
             let items = []; function addItem(name, cal, prot) {{ items.push({{name: name, cal: parseInt(cal), prot: parseInt(prot)}}); updateUI(); }} 
