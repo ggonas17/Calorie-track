@@ -27,7 +27,7 @@ def init_db():
         'calories INTEGER', 'protein INTEGER', 'water REAL', 'reading INTEGER', 
         'money REAL', 'sleep REAL', 'gym INTEGER DEFAULT 0', 'run INTEGER DEFAULT 0',
         'notes TEXT', 'bible INTEGER DEFAULT 0',
-        'goal_c INTEGER', 'goal_p INTEGER', 'goal_s INTEGER', 'goal_w REAL' # SNAPSHOTS DE METAS
+        'goal_c INTEGER', 'goal_p INTEGER', 'goal_s INTEGER', 'goal_w REAL'
     ]
     for col in columns:
         try: conn.execute(f'ALTER TABLE daily_stats ADD COLUMN {col}')
@@ -35,7 +35,9 @@ def init_db():
     try: conn.execute('ALTER TABLE logs ADD COLUMN recipe TEXT')
     except: pass
     
-    defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), ('water_goal', '2.5')]
+    defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), 
+                ('water_goal', '2.5'), ('reading_goal', '15'), ('money_goal', '300'), 
+                ('sleep_goal', '7.5'), ('gym_goal', '4'), ('run_goal', '3')]
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
@@ -43,7 +45,6 @@ def init_db():
 
 init_db()
 
-# --- O SNAPSHOT (BLINDAGEM DO PASSADO) ---
 def ensure_daily_goals(date_str):
     conn = get_db_connection()
     row = conn.execute('SELECT goal_p FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
@@ -64,7 +65,7 @@ def ensure_daily_goals(date_str):
 
 def get_streak(conn):
     settings = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
-    g_sl = 7.5 # HARDCODED
+    g_sl = 7.5
 
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
     logs_data = conn.execute("SELECT date, SUM(protein) as p FROM logs GROUP BY date").fetchall()
@@ -85,7 +86,6 @@ def get_streak(conn):
             
         s_row = stats_dict.get(d_str, {}); l_p = logs_dict.get(d_str, 0)
         
-        # Puxa os objetivos locais (se existirem) ou usa os globais antigos
         g_p = s_row.get('goal_p') or int(settings.get('protein_goal', 160))
         g_s = s_row.get('goal_s') or int(settings.get('step_goal', 10000))
         g_w = s_row.get('goal_w') or float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
@@ -97,8 +97,6 @@ def get_streak(conn):
         
         y, m, d = map(int, d_str.split('-'))
         days_in_month = calendar.monthrange(y, m)[1]
-        
-        # Puxa o orçamento específico desse mês
         g_m = float(str(settings.get(f'money_goal_{y}-{m:02d}', 300)).replace(',', '.'))
         
         spent = sum(stats_dict.get(f"{y}-{m:02d}-{i:02d}", {}).get('money', 0) or 0 for i in range(1, d))
@@ -164,17 +162,20 @@ CSS = """
     .progress-fill-p { background: linear-gradient(90deg, #30d158, #32d74b); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; max-height: 250px; overflow-y: auto; }
     @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-    .checkbox-wrapper { display: flex; align-items: center; justify-content: center; gap: 10px; background: #2c2c2e; padding: 20px; border-radius: 15px; cursor: pointer; border: 2px solid #3a3a3c; transition: 0.2s; width:100%; box-sizing:border-box; margin-bottom:15px; }
+    
+    /* CAIXAS DE BOTÃO DE TREINO BLINDADAS */
+    .checkbox-wrapper { display: flex; align-items: center; justify-content: center; gap: 10px; background: #2c2c2e; padding: 20px; border-radius: 15px; cursor: pointer; border: 2px solid #3a3a3c; transition: 0.2s; width:100%; box-sizing:border-box; margin-bottom:15px; -webkit-tap-highlight-color: transparent; user-select: none; }
     .checkbox-wrapper.checked { background: #30d158; border-color: #30d158; }
-    .checkbox-wrapper span { font-weight: bold; color: #fff; }
+    .checkbox-wrapper span { font-weight: bold; color: #fff; pointer-events: none; }
     .checkbox-wrapper.checked span { color: #000; }
+    .checkbox-wrapper input { display: none; }
 </style>
 """
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
     today = datetime.now().strftime("%Y-%m-%d")
-    ensure_daily_goals(today) # TRANCAR AS METAS DE HOJE
+    ensure_daily_goals(today)
     
     conn = get_db_connection()
     yesterday_dt = datetime.now() - timedelta(days=1)
@@ -199,8 +200,11 @@ def home():
         
         if c_val and p_val:
             now_time = datetime.now().strftime("%H:%M")
-            conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date, recipe) VALUES (?, ?, ?, ?, ?, ?)', (f_name, int(c_val), int(p_val), now_time, today, ""))
-            if wants_to_save: conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)', (f_name, int(c_val), int(p_val), ""))
+            conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date, recipe) VALUES (?, ?, ?, ?, ?, ?)',
+                         (f_name, int(c_val), int(p_val), now_time, today, ""))
+            if wants_to_save:
+                conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)',
+                             (f_name, int(c_val), int(p_val), ""))
             conn.commit()
 
     missing_routines_html = ""
@@ -237,14 +241,15 @@ def home():
     
     today_stats = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (today,)).fetchone()
     
-    # Usa os snapshots locais para a UI de hoje se existirem
     goal_c = today_stats['goal_c'] if today_stats and 'goal_c' in today_stats.keys() and today_stats['goal_c'] else int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 2100)
     goal_p = today_stats['goal_p'] if today_stats and 'goal_p' in today_stats.keys() and today_stats['goal_p'] else int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 160)
     
     today_stats_c = today_stats['calories'] if today_stats and 'calories' in today_stats.keys() and today_stats['calories'] is not None else None
     today_stats_p = today_stats['protein'] if today_stats and 'protein' in today_stats.keys() and today_stats['protein'] is not None else None
     
-    calc_c = sum(log['calories'] for log in logs); calc_p = sum(log['protein'] for log in logs)
+    calc_c = sum(log['calories'] for log in logs)
+    calc_p = sum(log['protein'] for log in logs)
+    
     total_c = today_stats_c if today_stats_c is not None else calc_c
     total_p = today_stats_p if today_stats_p is not None else calc_p
     conn.close()
@@ -329,7 +334,6 @@ def history():
             l_c = logs_dict.get(d_str, {}).get('c', 0); l_p = logs_dict.get(d_str, {}).get('p', 0)
             s_row = stats_dict.get(d_str, {})
             
-            # Puxa Snapshot (ou Global se for mt antigo)
             g_c = s_row.get('goal_c') or global_g_c
             g_p = s_row.get('goal_p') or global_g_p
             g_s = s_row.get('goal_s') or global_g_s
@@ -433,7 +437,6 @@ def money():
     except: target_date = datetime.now()
     y, m = target_date.year, target_date.month
     
-    # ORÇAMENTO MENSAL ISOLADO
     if request.method == 'POST':
         new_b = request.form.get('new_budget')
         if new_b:
@@ -446,7 +449,7 @@ def money():
     month_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     
     goal_m_raw = conn.execute("SELECT value FROM settings WHERE key=?", (f'money_goal_{y}-{m:02d}',)).fetchone()
-    if not goal_m_raw: goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone() # Fallback antigo
+    if not goal_m_raw: goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone()
     goal_m = float(goal_m_raw['value'].replace(',', '.')) if goal_m_raw else 300.0
     
     stats_data = conn.execute("SELECT * FROM daily_stats WHERE date LIKE ?", (f"{y}-{m:02d}-%",)).fetchall()
@@ -580,8 +583,8 @@ def rank():
             g_w = s_row.get('goal_w') or global_g_w
             
             s_p = s_row.get('protein'); s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0; s_m = s_row.get('money') or 0
-            s_n = s_row.get('notes')
-            gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0); bible_d = int(s_row.get('bible') or 0)
+            s_n = s_row.get('notes'); bible_d = int(s_row.get('bible') or 0)
+            gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
             
             f_p = s_p if s_p is not None else l_p
             limit_m = day_limits.get(d_str, 0)
@@ -606,7 +609,7 @@ def rank():
                     elif score <= 4: bg_color = "rgba(255, 159, 10, 0.5)"; txt_color = "#fff"
                     elif score <= 8: bg_color = "rgba(255, 214, 10, 0.5)"; txt_color = "#000"
                     elif score <= 12: bg_color = "rgba(48, 209, 88, 0.6)"; txt_color = "#000"
-                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff" # LENDÁRIO AZUL 13 PTS
+                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff"
                     score_display = f"{score}"
             else: score_display = "-"
                 
@@ -644,7 +647,6 @@ def edit_day(date):
     if request.method == 'POST':
         row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
         
-        # Tirar snapshot se o dia nunca existiu
         if not row:
             ensure_daily_goals(date)
         
@@ -705,11 +707,13 @@ def edit_day(date):
         title_top = "MACROS AND NOTES"
     elif edit_type == 'workout':
         form_content = f"""
-        <label class="checkbox-wrapper {s_gym}" id="gym_lbl" onclick="this.classList.toggle('checked'); document.getElementById('gym_chk').checked = this.classList.contains('checked');">
-            <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''}> <span style="font-size:1.2rem;">🏋️‍♂️ Went to Gym</span>
+        <label class="checkbox-wrapper {s_gym}" id="gym_lbl" for="gym_chk">
+            <input type="checkbox" id="gym_chk" name="gym" {s_gym} onchange="document.getElementById('gym_lbl').className = this.checked ? 'checkbox-wrapper checked' : 'checkbox-wrapper';"> 
+            <span style="font-size:1.2rem; pointer-events: none;">🏋️‍♂️ Went to Gym</span>
         </label>
-        <label class="checkbox-wrapper {s_run}" id="run_lbl" onclick="this.classList.toggle('checked'); document.getElementById('run_chk').checked = this.classList.contains('checked');">
-            <input type="checkbox" id="run_chk" name="run" {'checked' if s_run else ''}> <span style="font-size:1.2rem;">🏃 Went Running</span>
+        <label class="checkbox-wrapper {s_run}" id="run_lbl" for="run_chk">
+            <input type="checkbox" id="run_chk" name="run" {s_run} onchange="document.getElementById('run_lbl').className = this.checked ? 'checkbox-wrapper checked' : 'checkbox-wrapper';"> 
+            <span style="font-size:1.2rem; pointer-events: none;">🏃 Went Running</span>
         </label>
         """
         extra_html = ""
@@ -718,8 +722,9 @@ def edit_day(date):
         form_content = f"""
         <label style="color:#e5c07b; font-weight:bold; font-size:0.9rem;">Sleep 💤 (Hours):</label><input type="text" inputmode="decimal" name="sleep" value="{str(s_sl).replace(".", ",") if s_sl else ""}" placeholder="E.g., 7.5" style="margin:0; width:100%; margin-bottom:10px;">
         <label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Water 💧 (Liters):</label><input type="text" inputmode="decimal" name="water" value="{str(s_w).replace(".", ",") if s_w else ""}" placeholder="E.g., 2.5" style="margin:0; width:100%; margin-bottom:15px;">
-        <label class="checkbox-wrapper {s_b}" id="bible_lbl" onclick="this.classList.toggle('checked'); document.getElementById('bible_chk').checked = this.classList.contains('checked');">
-            <input type="checkbox" id="bible_chk" name="bible" {'checked' if s_b else ''}> <span style="font-size:1.2rem;">📖 Read Bible</span>
+        <label class="checkbox-wrapper {s_b}" id="bible_lbl" for="bible_chk">
+            <input type="checkbox" id="bible_chk" name="bible" {s_b} onchange="document.getElementById('bible_lbl').className = this.checked ? 'checkbox-wrapper checked' : 'checkbox-wrapper';"> 
+            <span style="font-size:1.2rem; pointer-events: none;">📖 Read Bible</span>
         </label>
         """
         extra_html = ""
