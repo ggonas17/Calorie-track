@@ -812,59 +812,6 @@ def import_db():
     if file.filename != '': file.save('tracker.db')
     return redirect(url_for('home'))
 
-@app.route('/routine', methods=['GET', 'POST'])
-def routine():
-    conn = get_db_connection()
-    if request.method == 'POST':
-        new_routine = {}
-        for i in range(7):
-            new_routine[str(i)] = {"g": request.form.get(f"g_{i}", ""), "r": request.form.get(f"r_{i}", "")}
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('weekly_routine', ?)", (json.dumps(new_routine),))
-        conn.commit(); conn.close()
-        return redirect(url_for('manage_favs'))
-
-    r_str = conn.execute("SELECT value FROM settings WHERE key='weekly_routine'").fetchone()
-    routines = json.loads(r_str['value']) if r_str else {str(i): {"g": "", "r": ""} for i in range(7)}
-    conn.close()
-
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    gym_opts = ["", "Push", "Pull", "Legs", "Upper", "Lower"]
-    run_opts = ["", "Tempo", "Easy", "Hard"]
-
-    rows_html = ""
-    for i, day in enumerate(days):
-        g_val = routines.get(str(i), {}).get("g", "")
-        r_val = routines.get(str(i), {}).get("r", "")
-        g_sel = "".join([f'<option value="{o}" {"selected" if o==g_val else ""}>{o if o else "Rest"}</option>' for o in gym_opts])
-        r_sel = "".join([f'<option value="{o}" {"selected" if o==r_val else ""}>{o if o else "Rest"}</option>' for o in run_opts])
-        
-        rows_html += f"""
-        <div style="background:#2c2c2e; padding:15px; border-radius:12px; margin-bottom:10px; text-align:left;">
-            <div style="color:#8e8e93; font-weight:bold; margin-bottom:8px; text-transform:uppercase; font-size:0.85rem;">{day}</div>
-            <div style="display:flex; gap:10px;">
-                <div style="flex:1;">
-                    <span style="font-size:0.75rem; color:#fff;">🏋️‍♂️ Gym</span>
-                    <select name="g_{i}" style="width:100%; background:#1c1c1e; color:#0a84ff; border:1px solid #3a3a3c; padding:10px; border-radius:8px; font-weight:bold; margin-top:5px; -webkit-appearance:none;">{g_sel}</select>
-                </div>
-                <div style="flex:1;">
-                    <span style="font-size:0.75rem; color:#fff;">🏃 Run</span>
-                    <select name="r_{i}" style="width:100%; background:#1c1c1e; color:#ff9f0a; border:1px solid #3a3a3c; padding:10px; border-radius:8px; font-weight:bold; margin-top:5px; -webkit-appearance:none;">{r_sel}</select>
-                </div>
-            </div>
-        </div>
-        """
-
-    return f'''
-    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <h2 style="color:#8e8e93;">WORKOUT ROUTINE 🗓️</h2>
-        <form method="POST">
-            {rows_html}
-            <button type="submit" class="btn-main" style="margin-top:20px; background:#30d158; color:#000;">SAVE ROUTINE</button>
-        </form>
-        <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a>
-    </body></html>
-    '''
-
 @app.route('/manage_favs', methods=['GET', 'POST'])
 def manage_favs():
     conn = get_db_connection()
