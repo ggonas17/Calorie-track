@@ -23,13 +23,12 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
                     (date TEXT PRIMARY KEY, steps INTEGER, calories INTEGER, protein INTEGER)''')
     
-    # As armaduras da DB
     columns = [
         'calories INTEGER', 'protein INTEGER', 'water REAL', 'reading INTEGER', 
         'money REAL', 'sleep REAL', 'gym INTEGER DEFAULT 0', 'run INTEGER DEFAULT 0',
         'notes TEXT', 'bible INTEGER DEFAULT 0',
         'goal_c INTEGER', 'goal_p INTEGER', 'goal_s INTEGER', 'goal_w REAL',
-        'planned_g TEXT', 'planned_r TEXT' # A FOTOGRAFIA DA ROTINA
+        'planned_g TEXT', 'planned_r TEXT'
     ]
     for col in columns:
         try: conn.execute(f'ALTER TABLE daily_stats ADD COLUMN {col}')
@@ -48,7 +47,6 @@ def init_db():
 
 init_db()
 
-# --- O SNAPSHOT BLINDADO ---
 def ensure_daily_goals(date_str):
     conn = get_db_connection()
     row = conn.execute('SELECT goal_p, planned_g FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
@@ -62,7 +60,6 @@ def ensure_daily_goals(date_str):
         
         r_str = settings.get('weekly_routine')
         routine = json.loads(r_str) if r_str else {str(i): {"g": "", "r": ""} for i in range(7)}
-        
         wd = str(datetime.strptime(date_str, "%Y-%m-%d").weekday())
         p_g = routine.get(wd, {}).get("g", "")
         p_r = routine.get(wd, {}).get("r", "")
@@ -186,7 +183,6 @@ def home():
     yesterday_display = yesterday_dt.strftime("%d/%m")
     
     if request.method == 'POST':
-        # Captura segura do Relatório Matinal (Agora com a Bíblia)
         if 'yesterday_steps' in request.form:
             update_daily_stat(yesterday_str, 'steps', request.form.get('yesterday_steps'))
             update_daily_stat(yesterday_str, 'water', request.form.get('yesterday_water'))
@@ -214,14 +210,14 @@ def home():
                              (f_name, int(c_val), int(p_val), ""))
             conn.commit()
 
+    # O Novo Check de Hitórico (Se instalaste hoje, não chateia sobre ontem)
+    has_history = conn.execute("SELECT 1 FROM daily_stats WHERE date <= ?", (yesterday_str,)).fetchone()
+    
     missing_routines_html = ""
     step_record = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
     y_steps = step_record['steps'] if step_record and 'steps' in step_record.keys() else None
 
-    had_logs_yesterday = conn.execute('SELECT id FROM logs WHERE date = ? LIMIT 1', (yesterday_str,)).fetchone()
-    
-    # Se passos for nulo, pede as rotinas de ontem
-    if y_steps is None and (had_logs_yesterday or step_record):
+    if y_steps is None and has_history:
         missing_routines_html = f"""
         <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
             <h3 style="color:#ff9f0a; margin-top:0;">📋 YESTERDAY'S REPORT ({yesterday_display})</h3>
@@ -353,7 +349,10 @@ def history():
     global_g_p = int(settings.get('protein_goal', 160))
     global_g_s = int(settings.get('step_goal', 10000))
     global_g_w = float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
-    goal_sl = 7.5; goal_gym = 4; goal_run = 3
+    goal_sl = 7.5
+    
+    r_str = settings.get('weekly_routine')
+    routine = json.loads(r_str) if r_str else {str(i): {"g": "", "r": ""} for i in range(7)}
     
     month_str = request.args.get('month', datetime.now().strftime('%Y-%m'))
     try: target_date = datetime.strptime(month_str, '%Y-%m')
@@ -380,10 +379,10 @@ def history():
     work_html = '<div style="display:flex; flex-direction:column; gap:15px;">'
 
     for week in month_days:
-        gym_week_count = 0; run_week_count = 0; has_current_month_days = False
+        week_planned_so_far = 0; week_done = 0; has_current_month_days = False
         
         for day_date in week:
-            d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day
+            d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day; wd = str(day_date.weekday())
             is_future = d_str > today_str; is_current_month = day_date.month == m
             if is_current_month: has_current_month_days = True
             
@@ -397,8 +396,16 @@ def history():
             s_n = s_row.get('notes'); bible_d = int(s_row.get('bible') or 0)
             gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
             
+            p_g = s_row.get('planned_g')
+            if p_g is None: p_g = routine.get(wd, {}).get("g", "")
+            p_r = s_row.get('planned_r')
+            if p_r is None: p_r = routine.get(wd, {}).get("r", "")
+            
             if d_str <= today_str:
-                gym_week_count += gym_d; run_week_count += run_d
+                if p_g: week_planned_so_far += 1
+                if p_r: week_planned_so_far += 1
+                if gym_d: week_done += 1
+                if run_d: week_done += 1
             
             final_c = s_c if s_c is not None else l_c; final_p = s_p if s_p is not None else l_p
             
@@ -443,40 +450,45 @@ def history():
                 rot_html += f'<a href="/edit_day/{d_str}?type=routines" style="background:{day_color}; border: 2px solid {border_r}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{rot_txt}</a>'
 
         if has_current_month_days:
-            # Lógica Flexível de Semanas de Treino (Avalia o Volume Total de Treinos)
-            total_done = gym_week_count + run_week_count
-            total_goal = goal_gym + goal_run
-            ratio = total_done / total_goal if total_goal > 0 else 1
-            
             border_wk = "#2c2c2e"
             if week[0].strftime("%Y-%m-%d") <= today_str:
-                if ratio >= 0.8: border_wk = "#30d158"
-                elif ratio >= 0.5: border_wk = "#ffd60a"
-                else: border_wk = "#ff453a"
+                if week_planned_so_far == 0:
+                    border_wk = "#30d158" if week_done > 0 else "#2c2c2e"
+                else:
+                    ratio = week_done / week_planned_so_far
+                    if ratio >= 0.8: border_wk = "#30d158"
+                    elif ratio >= 0.5: border_wk = "#ffd60a"
+                    else: border_wk = "#ff453a"
                 
-            work_html += f'<div style="border: 2px solid {border_wk}; border-radius:15px; padding:10px; background:#1c1c1e; margin-bottom:10px;"><div style="display:flex; justify-content:center; margin-bottom:10px; font-size:0.85rem; font-weight:bold; color:#fff; padding: 0 5px;"><span>🏋️‍♂️ {gym_week_count}/{goal_gym} &nbsp;|&nbsp; 🏃 {run_week_count}/{goal_run}</span></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+            work_html += f'<div style="border: 2px solid {border_wk}; border-radius:15px; padding:10px; background:#1c1c1e; margin-bottom:10px;"><div style="display:flex; justify-content:center; margin-bottom:10px; font-size:0.85rem; font-weight:bold; color:#fff; padding: 0 5px;"><span>Volume: {week_done} / {week_planned_so_far}</span></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
             
             for day_date in week:
-                d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day
+                d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day; wd = str(day_date.weekday())
                 is_future = d_str > today_str; is_current_month = day_date.month == m
                 s_row = stats_dict.get(d_str, {})
                 gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
                 
-                planned_g = s_row.get('planned_g') or ""
-                planned_r = s_row.get('planned_r') or ""
+                planned_g = s_row.get('planned_g')
+                if planned_g is None: planned_g = routine.get(wd, {}).get("g", "")
+                planned_r = s_row.get('planned_r')
+                if planned_r is None: planned_r = routine.get(wd, {}).get("r", "")
                 
-                day_color = "#2c2c2e"; border_c_work = "1px solid #3a3a3c"
+                day_color = "#2c2c2e"
+                border_c_work = "1px solid #3a3a3c"
+                
                 if d_str == today_str: day_color = "rgba(10, 132, 255, 0.15)"; border_c_work = "1px solid #0a84ff"
-                if gym_d > 0 or run_d > 0: day_color = "rgba(10, 132, 255, 0.2)"; border_c_work = "1px solid #0a84ff" # O AZUL DE TREINO
+                if gym_d > 0 or run_d > 0: day_color = "rgba(10, 132, 255, 0.2)"; border_c_work = "1px solid #0a84ff"
                     
                 opacity = "1" if is_current_month else "0.3"
                 icons = ""
                 
                 if gym_d: icons += f'<div style="color:#30d158; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏋️‍♂️ {planned_g or "Gym"}</div>'
                 elif planned_g and not is_future: icons += f'<div style="color:#ff453a; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏋️‍♂️ {planned_g}</div>'
+                elif planned_g and is_future: icons += f'<div style="color:#8e8e93; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏋️‍♂️ {planned_g}</div>'
                 
                 if run_d: icons += f'<div style="color:#30d158; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏃 {planned_r or "Run"}</div>'
                 elif planned_r and not is_future: icons += f'<div style="color:#ff453a; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏃 {planned_r}</div>'
+                elif planned_r and is_future: icons += f'<div style="color:#8e8e93; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏃 {planned_r}</div>'
                 
                 if not icons: icons = '<div style="color:#444; font-size:0.6rem; margin-top:3px;">Rest</div>'
                 
@@ -489,8 +501,8 @@ def history():
     return f"""
     <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <h2 style="color:#8e8e93; margin-bottom:10px;">MACROS & DIARY</h2><div class="card" style="padding:15px;">{cal_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Prot + Steps</div><div><span style="color:#ffd60a;">🟡</span> Only Prot</div><div><span style="color:#ff9f0a;">🟠</span> Only Steps</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div><div>📝 Notes</div></div></div>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">DAILY ROUTINES</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sleep + Water</div><div><span style="color:#ffd60a;">🟡</span> Only Sleep</div><div><span style="color:#ff9f0a;">🟠</span> Only Water</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div></div></div>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">WEEKLY WORKOUTS</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Flexible Plan (Green > 80% of Total Weekly Goals)</p>{work_html}</div>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">WELL BEING</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sleep + Water</div><div><span style="color:#ffd60a;">🟡</span> Only Sleep</div><div><span style="color:#ff9f0a;">🟠</span> Only Water</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div></div></div>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">WEEKLY WORKOUTS</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Flexible Plan (Green > 80% Volume)</p>{work_html}</div>
         <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item active"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
@@ -645,9 +657,6 @@ def rank():
             s_row = stats_dict.get(d_str, {})
             
             g_p = s_row.get('goal_p') or global_g_p
-            g_s = s_row.get('goal_s') or global_g_s
-            g_w = s_row.get('goal_w') or global_g_w
-            
             s_p = s_row.get('protein'); s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0; s_m = s_row.get('money') or 0
             s_n = s_row.get('notes'); bible_d = int(s_row.get('bible') or 0)
             gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
@@ -659,8 +668,8 @@ def rank():
             if not is_future:
                 if f_p >= g_p: score += 3
                 if s_sl >= g_sl: score += 2
-                if s_s >= g_s: score += 2
-                if s_w >= g_w: score += 2
+                if s_s >= 10000: score += 2
+                if s_w >= 2.5: score += 2
                 if s_m <= limit_m: score += 1
                 if gym_d > 0 or run_d > 0: score += 2
                 if bible_d > 0: score += 1
@@ -732,7 +741,7 @@ def edit_day(date):
             b = 1 if request.form.get('bible') == 'on' else 0
             if w is not None: conn.execute('UPDATE daily_stats SET water=? WHERE date=?', (None if w == "CLEAR" else w, date))
             if sl is not None: conn.execute('UPDATE daily_stats SET sleep=? WHERE date=?', (None if sl == "CLEAR" else sl, date))
-            if 'bible' in request.form or 'water' in request.form: # Safety check to ensure form submitted
+            if 'bible' in request.form or 'water' in request.form:
                 conn.execute('UPDATE daily_stats SET bible=? WHERE date=?', (b, date))
             
         elif edit_type == 'money':
@@ -842,50 +851,6 @@ def manage_favs():
         <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
-
-@app.route('/edit_fav/<int:fav_id>', methods=['GET', 'POST'])
-def edit_fav(fav_id):
-    conn = get_db_connection()
-    if request.method == 'POST':
-        f_name, c_val, p_val, r_val = request.form.get('food_name'), request.form.get('calories'), request.form.get('protein'), request.form.get('recipe_json', '')
-        conn.execute('UPDATE favorites SET food_name=?, calories=?, protein=?, recipe=? WHERE id=?', (f_name, int(c_val), int(p_val), r_val, fav_id))
-        conn.commit(); conn.close(); return redirect(url_for('manage_favs'))
-    fav = conn.execute('SELECT * FROM favorites WHERE id=?', (fav_id,)).fetchone(); conn.close()
-    is_meal = bool(fav['recipe'] and fav['recipe'] not in ('', '""', '[]')); recipe_data = fav['recipe'] if is_meal else "[]"
-    if is_meal: editor_html = f'<h2 style="color:#8e8e93;">EDIT MEAL</h2><div class="card"><form method="POST"><input type="text" name="food_name" value="{fav["food_name"]}" required style="font-weight:bold; font-size:1.2rem; text-align:center;"><div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;"><h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p></div><h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Meal Ingredients:</h4><div id="recipe_list"></div><button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADD INGREDIENT</button><input type="hidden" id="form_cal" name="calories" value="{fav["calories"]}"><input type="hidden" id="form_prot" name="protein" value="{fav["protein"]}"><input type="hidden" id="form_recipe" name="recipe_json" value=\'{recipe_data}\'><button type="submit" class="btn-green" style="margin-top:30px;">SAVE MEAL</button></form><a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div><script>let recipe = {recipe_data}; function renderRecipe() {{ let html = ""; let tCal = 0; let tProt = 0; recipe.forEach((it, idx) => {{ tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0; html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;"><input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, \'name\', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, \'cal\', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, \'prot\', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button></div>`; }}); document.getElementById("recipe_list").innerHTML = html; document.getElementById("total_cal_display").innerText = tCal; document.getElementById("total_prot_display").innerText = tProt; document.getElementById("form_cal").value = tCal; document.getElementById("form_prot").value = tProt; document.getElementById("form_recipe").value = JSON.stringify(recipe); }} function updateItem(idx, field, val) {{ if(field === "cal" || field === "prot") val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }} function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }} function addNewItem() {{ recipe.push({{name: "New Ingredient", cal: 0, prot: 0}}); renderRecipe(); }} renderRecipe();</script>'
-    else: editor_html = f'<h2 style="color:#8e8e93;">EDIT SIMPLE ITEM</h2><div class="card"><form method="POST"><input type="text" name="food_name" value="{fav["food_name"]}" required><input type="number" name="calories" value="{fav["calories"]}" required><input type="number" name="protein" value="{fav["protein"]}" required><button type="submit" class="btn-main">SAVE CHANGES</button></form><a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div>'
-    return f"<!DOCTYPE html><html lang='en'><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{editor_html}</body></html>"
-
-@app.route('/edit_log/<int:log_id>', methods=['GET', 'POST'])
-def edit_log(log_id):
-    conn = get_db_connection()
-    if request.method == 'POST':
-        f_name, c_val, p_val, r_val = request.form.get('food_name'), request.form.get('calories'), request.form.get('protein'), request.form.get('recipe_json', '')
-        conn.execute('UPDATE logs SET food_name=?, calories=?, protein=?, recipe=? WHERE id=?', (f_name, int(c_val), int(p_val), r_val, log_id))
-        conn.commit(); conn.close()
-        ref = request.referrer; return redirect(ref) if ref else redirect(url_for('home'))
-    log = conn.execute('SELECT * FROM logs WHERE id=?', (log_id,)).fetchone(); conn.close()
-    is_meal = bool(log['recipe'] and log['recipe'] not in ('', '""', '[]')); recipe_data = log['recipe'] if is_meal else "[]"
-    if is_meal: editor_html = f"""<h2 style="color:#8e8e93;">EDIT LOG (MEAL)</h2><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Logged at {log['timestamp']}</p><div class="card"><form method="POST"><input type="text" name="food_name" value="{log['food_name']}" required style="font-weight:bold; font-size:1.2rem; text-align:center;"><div style="background:#000; padding:15px; border-radius:15px; margin:15px 0;"><h1 style="margin:0; font-size:2rem;"><span id="total_cal_display">0</span> <span style="font-size:1rem; color:#8e8e93;">kcal</span></h1><p style="color:#30d158; font-weight:bold; margin:0;"><span id="total_prot_display">0</span>g Prot</p></div><h4 style="text-align:left; color:#8e8e93; margin-bottom:10px;">Ingredients:</h4><div id="recipe_list"></div><button type="button" onclick="addNewItem()" class="btn-main" style="background:#2c2c2e; color:#0a84ff; padding:10px; font-size:0.9rem; margin-top:10px;">+ ADD INGREDIENT</button><input type="hidden" id="form_cal" name="calories" value="{log['calories']}"><input type="hidden" id="form_prot" name="protein" value="{log['protein']}"><input type="hidden" id="form_recipe" name="recipe_json" value='{recipe_data}'><button type="submit" class="btn-green" style="margin-top:30px;">UPDATE LOG</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div><script>let recipe = {recipe_data}; function renderRecipe() {{ let html = ""; let tCal = 0; let tProt = 0; recipe.forEach((it, idx) => {{ tCal += parseInt(it.cal) || 0; tProt += parseInt(it.prot) || 0; html += `<div style="display:flex; gap:5px; margin-bottom:10px; align-items:center;"><input type="text" value="${{it.name}}" onchange="updateItem(${{idx}}, 'name', this.value)" style="width:45%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.cal}}" onchange="updateItem(${{idx}}, 'cal', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><input type="number" value="${{it.prot}}" onchange="updateItem(${{idx}}, 'prot', this.value)" style="width:25%; padding:10px; margin:0; font-size:0.9rem;"><button type="button" onclick="removeItem(${{idx}})" style="width:10%; background:transparent; border:none; color:#ff453a; font-weight:bold; font-size:1.2rem; cursor:pointer; padding:0;">✕</button></div>`; }}); document.getElementById('recipe_list').innerHTML = html; document.getElementById('total_cal_display').innerText = tCal; document.getElementById('total_prot_display').innerText = tProt; document.getElementById('form_cal').value = tCal; document.getElementById('form_prot').value = tProt; document.getElementById('form_recipe').value = JSON.stringify(recipe); }} function updateItem(idx, field, val) {{ if(field === 'cal' || field === 'prot') val = parseInt(val) || 0; recipe[idx][field] = val; renderRecipe(); }} function removeItem(idx) {{ recipe.splice(idx, 1); renderRecipe(); }} function addNewItem() {{ recipe.push({{name: 'New Ingredient', cal: 0, prot: 0}}); renderRecipe(); }} renderRecipe();</script>"""
-    else: editor_html = f'<h2 style="color:#8e8e93;">EDIT LOG</h2><div class="card"><p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Logged at {log["timestamp"]}</p><form method="POST"><input type="text" name="food_name" value="{log["food_name"]}" required><input type="number" name="calories" value="{log["calories"]}" required><input type="number" name="protein" value="{log["protein"]}" required><button type="submit" class="btn-main">UPDATE MEAL</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a></div>'
-    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>{editor_html}</body></html>'
-
-@app.route('/quick_add/<int:fav_id>')
-def quick_add(fav_id):
-    conn = get_db_connection(); fav = conn.execute('SELECT * FROM favorites WHERE id=?', (fav_id,)).fetchone()
-    if fav:
-        now_time, today = datetime.now().strftime("%H:%M"), datetime.now().strftime("%Y-%m-%d")
-        conn.execute('INSERT INTO logs (food_name, calories, protein, timestamp, date, recipe) VALUES (?, ?, ?, ?, ?, ?)', (fav['food_name'], fav['calories'], fav['protein'], now_time, today, fav['recipe']))
-        conn.commit()
-    conn.close(); return redirect(url_for('home'))
-
-@app.route('/delete/<int:log_id>')
-def delete_entry(log_id):
-    conn = get_db_connection(); conn.execute('DELETE FROM logs WHERE id = ?', (log_id,)); conn.commit(); conn.close(); ref = request.referrer; return redirect(ref) if ref else redirect(url_for('home'))
-
-@app.route('/delete_fav/<int:fav_id>')
-def delete_fav(fav_id):
-    conn = get_db_connection(); conn.execute('DELETE FROM favorites WHERE id = ?', (fav_id,)); conn.commit(); conn.close(); return redirect(url_for('manage_favs'))
 
 @app.route('/build_meal', methods=['GET', 'POST'])
 def build_meal():
