@@ -36,11 +36,14 @@ def init_db():
     except: pass
     
     defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), 
-                ('water_goal', '2.5'), ('reading_goal', '15'), ('money_goal', '300'), 
-                ('sleep_goal', '7.5'), ('gym_goal', '4'), ('run_goal', '3')]
+                ('water_goal', '2.5'), ('money_goal', '300'), ('sleep_goal', '7.5')]
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
+    # Inicializa uma rotina vazia se não existir
+    default_routine = {str(i): {"g": "", "r": ""} for i in range(7)}
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('weekly_routine', ?)", (json.dumps(default_routine),))
+    
     conn.commit(); conn.close()
 
 init_db()
@@ -48,48 +51,35 @@ init_db()
 def ensure_daily_goals(date_str):
     conn = get_db_connection()
     row = conn.execute('SELECT goal_p FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
-    
     if not row or row['goal_p'] is None:
         goals = {r['key']: r['value'] for r in conn.execute("SELECT * FROM settings").fetchall()}
-        g_c = int(goals.get('daily_goal', 2100))
-        g_p = int(goals.get('protein_goal', 160))
-        g_s = int(goals.get('step_goal', 10000))
-        g_w = float(str(goals.get('water_goal', 2.5)).replace(',', '.'))
-        
-        if not row:
-            conn.execute('INSERT INTO daily_stats (date, goal_c, goal_p, goal_s, goal_w) VALUES (?, ?, ?, ?, ?)', (date_str, g_c, g_p, g_s, g_w))
-        else:
-            conn.execute('UPDATE daily_stats SET goal_c=?, goal_p=?, goal_s=?, goal_w=? WHERE date=?', (g_c, g_p, g_s, g_w, date_str))
+        g_c = int(goals.get('daily_goal', 2100)); g_p = int(goals.get('protein_goal', 160))
+        g_s = int(goals.get('step_goal', 10000)); g_w = float(str(goals.get('water_goal', 2.5)).replace(',', '.'))
+        if not row: conn.execute('INSERT INTO daily_stats (date, goal_c, goal_p, goal_s, goal_w) VALUES (?, ?, ?, ?, ?)', (date_str, g_c, g_p, g_s, g_w))
+        else: conn.execute('UPDATE daily_stats SET goal_c=?, goal_p=?, goal_s=?, goal_w=? WHERE date=?', (g_c, g_p, g_s, g_w, date_str))
         conn.commit()
     conn.close()
 
 def get_streak(conn):
     settings = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
     g_sl = 7.5
-
     stats_data = conn.execute("SELECT * FROM daily_stats").fetchall()
     logs_data = conn.execute("SELECT date, SUM(protein) as p FROM logs GROUP BY date").fetchall()
-
     stats_dict = {row['date']: dict(row) for row in stats_data}
     logs_dict = {row['date']: row['p'] for row in logs_data}
-
     min_d1 = conn.execute("SELECT MIN(date) as md FROM daily_stats").fetchone()['md'] or "2099"
     min_d2 = conn.execute("SELECT MIN(date) as md FROM logs").fetchone()['md'] or "2099"
     min_date = min(min_d1, min_d2)
     if min_date == "2099": return 0
 
     streak = 0; check_date = datetime.now(); is_first_day = True
-    
     while True:
         d_str = check_date.strftime("%Y-%m-%d")
         if d_str < min_date: break
-            
         s_row = stats_dict.get(d_str, {}); l_p = logs_dict.get(d_str, 0)
-        
         g_p = s_row.get('goal_p') or int(settings.get('protein_goal', 160))
         g_s = s_row.get('goal_s') or int(settings.get('step_goal', 10000))
         g_w = s_row.get('goal_w') or float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
-        
         f_p = s_row.get('protein') if s_row.get('protein') is not None else l_p
         s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0
         s_m = s_row.get('money') or 0; gym_d = s_row.get('gym') or 0; run_d = s_row.get('run') or 0
@@ -98,7 +88,6 @@ def get_streak(conn):
         y, m, d = map(int, d_str.split('-'))
         days_in_month = calendar.monthrange(y, m)[1]
         g_m = float(str(settings.get(f'money_goal_{y}-{m:02d}', 300)).replace(',', '.'))
-        
         spent = sum(stats_dict.get(f"{y}-{m:02d}-{i:02d}", {}).get('money', 0) or 0 for i in range(1, d))
         days_left = days_in_month - d + 1
         limit_m = (g_m - spent) / days_left if days_left > 0 else 0
@@ -115,7 +104,6 @@ def get_streak(conn):
         if score >= 9: streak += 1
         else:
             if not is_first_day: break
-                
         is_first_day = False; check_date -= timedelta(days=1)
     return streak
 
@@ -145,7 +133,7 @@ CSS = """
     .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(28, 28, 30, 0.95); backdrop-filter: blur(10px); display: flex; justify-content: space-around; padding: 15px 0; border-top: 0.5px solid #3a3a3c; z-index: 100; }
     .nav-item { color: #8e8e93; text-decoration: none; font-size: 0.70rem; font-weight: 600; flex: 1; display: flex; flex-direction: column; align-items: center; }
     .nav-item.active { color: #0a84ff; }
-    input, textarea { background: #2c2c2e; border: none; border-radius: 12px; color: #fff; padding: 15px; margin: 8px 0; width: 90%; font-size: 16px; -webkit-appearance: none; box-sizing: border-box; font-family:inherit; }
+    input, textarea, select { background: #2c2c2e; border: none; border-radius: 12px; color: #fff; padding: 15px; margin: 8px 0; width: 90%; font-size: 16px; -webkit-appearance: none; box-sizing: border-box; font-family:inherit; }
     .btn-main { background: #0a84ff; color: #fff; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; }
     .btn-green { background: #30d158; color: #000; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; display: block; text-decoration: none; }
     .btn-orange { background: #ff9f0a; color: #000; border: none; border-radius: 12px; padding: 14px; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
@@ -162,8 +150,6 @@ CSS = """
     .progress-fill-p { background: linear-gradient(90deg, #30d158, #32d74b); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; max-height: 250px; overflow-y: auto; }
     @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-    
-    /* CAIXAS DE BOTÃO DE TREINO BLINDADAS */
     .checkbox-wrapper { display: flex; align-items: center; justify-content: center; gap: 10px; background: #2c2c2e; padding: 20px; border-radius: 15px; cursor: pointer; border: 2px solid #3a3a3c; transition: 0.2s; width:100%; box-sizing:border-box; margin-bottom:15px; -webkit-tap-highlight-color: transparent; user-select: none; }
     .checkbox-wrapper.checked { background: #30d158; border-color: #30d158; }
     .checkbox-wrapper span { font-weight: bold; color: #fff; pointer-events: none; }
@@ -240,16 +226,13 @@ def home():
     favs = conn.execute('SELECT * FROM favorites').fetchall()
     
     today_stats = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (today,)).fetchone()
-    
     goal_c = today_stats['goal_c'] if today_stats and 'goal_c' in today_stats.keys() and today_stats['goal_c'] else int(conn.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()['value'] or 2100)
     goal_p = today_stats['goal_p'] if today_stats and 'goal_p' in today_stats.keys() and today_stats['goal_p'] else int(conn.execute("SELECT value FROM settings WHERE key='protein_goal'").fetchone()['value'] or 160)
     
     today_stats_c = today_stats['calories'] if today_stats and 'calories' in today_stats.keys() and today_stats['calories'] is not None else None
     today_stats_p = today_stats['protein'] if today_stats and 'protein' in today_stats.keys() and today_stats['protein'] is not None else None
     
-    calc_c = sum(log['calories'] for log in logs)
-    calc_p = sum(log['protein'] for log in logs)
-    
+    calc_c = sum(log['calories'] for log in logs); calc_p = sum(log['protein'] for log in logs)
     total_c = today_stats_c if today_stats_c is not None else calc_c
     total_p = today_stats_p if today_stats_p is not None else calc_p
     conn.close()
@@ -287,6 +270,68 @@ def home():
     </body></html>
     """
 
+# --- O CRIADOR DE ROTINAS ---
+@app.route('/routine', methods=['GET', 'POST'])
+def routine():
+    conn = get_db_connection()
+    if request.method == 'POST':
+        new_routine = {}
+        for i in range(7):
+            new_routine[str(i)] = {
+                "g": request.form.get(f"g_{i}", ""),
+                "r": request.form.get(f"r_{i}", "")
+            }
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('weekly_routine', ?)", (json.dumps(new_routine),))
+        conn.commit(); conn.close()
+        return redirect(url_for('manage_favs'))
+
+    r_str = conn.execute("SELECT value FROM settings WHERE key='weekly_routine'").fetchone()
+    routines = json.loads(r_str['value']) if r_str else {str(i): {"g": "", "r": ""} for i in range(7)}
+    conn.close()
+
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    gym_opts = ["", "Push", "Pull", "Legs", "Upper", "Lower"]
+    run_opts = ["", "Tempo", "Easy", "Hard"]
+
+    rows_html = ""
+    for i, day in enumerate(days):
+        g_val = routines.get(str(i), {}).get("g", "")
+        r_val = routines.get(str(i), {}).get("r", "")
+        
+        g_sel = "".join([f'<option value="{o}" {"selected" if o==g_val else ""}>{o if o else "Rest"}</option>' for o in gym_opts])
+        r_sel = "".join([f'<option value="{o}" {"selected" if o==r_val else ""}>{o if o else "Rest"}</option>' for o in run_opts])
+        
+        rows_html += f"""
+        <div style="background:#2c2c2e; padding:15px; border-radius:12px; margin-bottom:10px; text-align:left;">
+            <div style="color:#8e8e93; font-weight:bold; margin-bottom:8px; text-transform:uppercase; font-size:0.85rem;">{day}</div>
+            <div style="display:flex; gap:10px;">
+                <div style="flex:1;">
+                    <span style="font-size:0.75rem; color:#fff;">🏋️‍♂️ Gym</span>
+                    <select name="g_{i}" style="width:100%; background:#1c1c1e; color:#0a84ff; border:1px solid #3a3a3c; padding:10px; border-radius:8px; font-weight:bold; margin-top:5px; -webkit-appearance:none;">
+                        {g_sel}
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <span style="font-size:0.75rem; color:#fff;">🏃 Run</span>
+                    <select name="r_{i}" style="width:100%; background:#1c1c1e; color:#ff9f0a; border:1px solid #3a3a3c; padding:10px; border-radius:8px; font-weight:bold; margin-top:5px; -webkit-appearance:none;">
+                        {r_sel}
+                    </select>
+                </div>
+            </div>
+        </div>
+        """
+
+    return f'''
+    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+        <h2 style="color:#8e8e93;">WORKOUT ROUTINE 🗓️</h2>
+        <form method="POST">
+            {rows_html}
+            <button type="submit" class="btn-main" style="margin-top:20px; background:#30d158; color:#000;">SAVE ROUTINE</button>
+        </form>
+        <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Cancel</a>
+    </body></html>
+    '''
+
 @app.route('/history')
 def history():
     conn = get_db_connection()
@@ -295,8 +340,10 @@ def history():
     global_g_p = int(settings.get('protein_goal', 160))
     global_g_s = int(settings.get('step_goal', 10000))
     global_g_w = float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
+    goal_sl = 7.5
     
-    goal_sl = 7.5; goal_gym = 4; goal_run = 3
+    r_str = settings.get('weekly_routine')
+    routine = json.loads(r_str) if r_str else {str(i): {"g": "", "r": ""} for i in range(7)}
     
     month_str = request.args.get('month', datetime.now().strftime('%Y-%m'))
     try: target_date = datetime.strptime(month_str, '%Y-%m')
@@ -322,29 +369,33 @@ def history():
     rot_html = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
     work_html = '<div style="display:flex; flex-direction:column; gap:15px;">'
 
-    week_counter = 1
     for week in month_days:
-        gym_week_count = 0; run_week_count = 0; has_current_month_days = False
+        week_planned = 0; week_done = 0; has_current_month_days = False
         
         for day_date in week:
-            d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day
+            d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day; wd = str(day_date.weekday())
             is_future = d_str > today_str; is_current_month = day_date.month == m
             if is_current_month: has_current_month_days = True
             
             l_c = logs_dict.get(d_str, {}).get('c', 0); l_p = logs_dict.get(d_str, {}).get('p', 0)
             s_row = stats_dict.get(d_str, {})
             
-            g_c = s_row.get('goal_c') or global_g_c
-            g_p = s_row.get('goal_p') or global_g_p
-            g_s = s_row.get('goal_s') or global_g_s
-            g_w = s_row.get('goal_w') or global_g_w
+            g_c = s_row.get('goal_c') or global_g_c; g_p = s_row.get('goal_p') or global_g_p
+            g_s = s_row.get('goal_s') or global_g_s; g_w = s_row.get('goal_w') or global_g_w
             
             s_c = s_row.get('calories'); s_p = s_row.get('protein'); s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0
             s_n = s_row.get('notes'); bible_d = int(s_row.get('bible') or 0)
             gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
             
+            planned_g = routine.get(wd, {}).get("g", "")
+            planned_r = routine.get(wd, {}).get("r", "")
+            
+            if planned_g: week_planned += 1
+            if planned_r: week_planned += 1
+            
             if d_str <= today_str:
-                gym_week_count += gym_d; run_week_count += run_d
+                if gym_d: week_done += 1
+                if run_d: week_done += 1
             
             final_c = s_c if s_c is not None else l_c; final_p = s_p if s_p is not None else l_p
             
@@ -389,33 +440,50 @@ def history():
                 rot_html += f'<a href="/edit_day/{d_str}?type=routines" style="background:{day_color}; border: 2px solid {border_r}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{rot_txt}</a>'
 
         if has_current_month_days:
-            gym_met = gym_week_count >= goal_gym; run_met = run_week_count >= goal_run
             border_wk = "#2c2c2e"
             if week[0].strftime("%Y-%m-%d") <= today_str:
-                if gym_met and run_met: border_wk = "#30d158"
-                elif gym_met or run_met: border_wk = "#ff9f0a"
-                else: border_wk = "#ff453a"
+                if week_planned == 0:
+                    border_wk = "#30d158" if week_done > 0 else "#2c2c2e"
+                else:
+                    ratio = week_done / week_planned
+                    if ratio >= 0.8: border_wk = "#30d158"
+                    elif ratio >= 0.5: border_wk = "#ffd60a"
+                    else: border_wk = "#ff453a"
                 
-            work_html += f'<div style="border: 2px solid {border_wk}; border-radius:15px; padding:10px; background:#1c1c1e; margin-bottom:10px;"><div style="display:flex; justify-content:center; margin-bottom:10px; font-size:0.85rem; font-weight:bold; color:#fff; padding: 0 5px;"><span>🏋️‍♂️ {gym_week_count}/{goal_gym} &nbsp;|&nbsp; 🏃 {run_week_count}/{goal_run}</span></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+            work_html += f'<div style="border: 2px solid {border_wk}; border-radius:15px; padding:10px; background:#1c1c1e; margin-bottom:10px;"><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
             
             for day_date in week:
-                d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day
+                d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day; wd = str(day_date.weekday())
                 is_future = d_str > today_str; is_current_month = day_date.month == m
                 s_row = stats_dict.get(d_str, {})
                 gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
                 
-                day_color = "#2c2c2e"; border_c_work = "1px solid #3a3a3c"
+                planned_g = routine.get(wd, {}).get("g", "")
+                planned_r = routine.get(wd, {}).get("r", "")
+                
+                day_color = "#2c2c2e"
+                border_c_work = "1px solid #3a3a3c"
+                
                 if d_str == today_str: day_color = "rgba(10, 132, 255, 0.15)"; border_c_work = "1px solid #0a84ff"
                 if gym_d > 0 or run_d > 0: day_color = "rgba(10, 132, 255, 0.2)"; border_c_work = "1px solid #0a84ff"
                     
                 opacity = "1" if is_current_month else "0.3"
-                icons = ""
-                if gym_d: icons += "🏋️‍♂️"
-                if run_d: icons += "🏃"
-                if not icons: icons = "&nbsp;"
                 
-                if is_future: work_html += f'<div style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:8px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span></div>'
-                else: work_html += f'<a href="/edit_day/{d_str}?type=workout" style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span><div style="font-size:0.65rem; margin-top:2px;">{icons}</div></a>'
+                icons = ""
+                # Mostra o que estava planeado, se concluído fica verde, se não fica vermelho (no passado) ou cinza
+                if planned_g or gym_d:
+                    c_col = "#30d158" if gym_d else ("#ff453a" if not is_future and planned_g else "#8e8e93")
+                    lbl = planned_g if planned_g else "Gym"
+                    icons += f'<div style="color:{c_col}; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏋️‍♂️ {lbl}</div>'
+                if planned_r or run_d:
+                    c_col = "#30d158" if run_d else ("#ff453a" if not is_future and planned_r else "#8e8e93")
+                    lbl = planned_r if planned_r else "Run"
+                    icons += f'<div style="color:{c_col}; font-weight:bold; font-size:0.55rem; margin-top:3px; line-height:1;">🏃 {lbl}</div>'
+                
+                if not icons: icons = '<div style="color:#444; font-size:0.6rem; margin-top:3px;">Rest</div>'
+                
+                if is_future: work_html += f'<div style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:5px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span>{icons}</div>'
+                else: work_html += f'<a href="/edit_day/{d_str}?type=workout" style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:5px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{icons}</a>'
             work_html += "</div></div>"
 
     cal_html += "</div>"; rot_html += "</div>"; work_html += "</div>"
@@ -424,7 +492,7 @@ def history():
     <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <h2 style="color:#8e8e93; margin-bottom:10px;">MACROS & DIARY</h2><div class="card" style="padding:15px;">{cal_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Prot + Steps</div><div><span style="color:#ffd60a;">🟡</span> Only Prot</div><div><span style="color:#ff9f0a;">🟠</span> Only Steps</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div><div>📝 Notes</div></div></div>
         <h2 style="color:#8e8e93; margin-bottom:10px;">WELL BEING</h2><div class="card" style="padding:15px;">{rot_html}<div style="display:flex; justify-content:center; gap:10px; font-size:0.65rem; color:#8e8e93; margin-top:20px; flex-wrap:wrap;"><div><span style="color:#30d158;">🟢</span> Sleep + Water</div><div><span style="color:#ffd60a;">🟡</span> Only Sleep</div><div><span style="color:#ff9f0a;">🟠</span> Only Water</div><div><span style="color:#ff453a;">🔴</span> Incomplete</div></div></div>
-        <h2 style="color:#8e8e93; margin-bottom:10px;">WEEKLY WORKOUTS</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Click a day below to log Gym or Run.</p>{work_html}</div>
+        <h2 style="color:#8e8e93; margin-bottom:10px;">WEEKLY WORKOUTS</h2><div class="card" style="padding:15px; border:none; background:transparent;"><p style="font-size:0.8rem; color:#8e8e93; margin-top:0;">Routine Plan (Green > 80% | Yellow > 50%)</p>{work_html}</div>
         <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item active"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
     </body></html>
     """
@@ -579,9 +647,6 @@ def rank():
             s_row = stats_dict.get(d_str, {})
             
             g_p = s_row.get('goal_p') or global_g_p
-            g_s = s_row.get('goal_s') or global_g_s
-            g_w = s_row.get('goal_w') or global_g_w
-            
             s_p = s_row.get('protein'); s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0; s_m = s_row.get('money') or 0
             s_n = s_row.get('notes'); bible_d = int(s_row.get('bible') or 0)
             gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
@@ -593,8 +658,8 @@ def rank():
             if not is_future:
                 if f_p >= g_p: score += 3
                 if s_sl >= g_sl: score += 2
-                if s_s >= g_s: score += 2
-                if s_w >= g_w: score += 2
+                if s_s >= 10000: score += 2 # hardcoded
+                if s_w >= 2.5: score += 2 # hardcoded
                 if s_m <= limit_m: score += 1
                 if gym_d > 0 or run_d > 0: score += 2
                 if bible_d > 0: score += 1
@@ -609,7 +674,7 @@ def rank():
                     elif score <= 4: bg_color = "rgba(255, 159, 10, 0.5)"; txt_color = "#fff"
                     elif score <= 8: bg_color = "rgba(255, 214, 10, 0.5)"; txt_color = "#000"
                     elif score <= 12: bg_color = "rgba(48, 209, 88, 0.6)"; txt_color = "#000"
-                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff"
+                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff" # LENDÁRIO AZUL 13 PTS
                     score_display = f"{score}"
             else: score_display = "-"
                 
@@ -647,8 +712,7 @@ def edit_day(date):
     if request.method == 'POST':
         row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
         
-        if not row:
-            ensure_daily_goals(date)
+        if not row: ensure_daily_goals(date)
         
         if edit_type == 'macros':
             c = parse_val(request.form.get('calories'), False)
@@ -761,6 +825,9 @@ def manage_favs():
     return f"""
     <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <a href="/rank" class="btn-main" style="display:block; text-decoration:none; background:linear-gradient(90deg, #0a84ff, #5e5ce6); color:#fff; font-size:1.2rem; margin-bottom:20px; padding:20px; box-shadow: 0 4px 15px rgba(10,132,255,0.4);">SEE GOD RANK 🏆</a>
+        
+        <a href="/routine" class="btn-main" style="display:block; text-decoration:none; background:#ff9f0a; color:#000; margin-bottom:15px;">🗓️ CREATE WORKOUT ROUTINE</a>
+
         <div class="card"><h3 style="margin-top:0; color:#8e8e93;">GENERAL GOALS</h3><form method="POST">
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; text-align:left;">
                 <div><label style="color:#8e8e93; font-size:0.75rem; margin-left:5px;">Kcal</label><input type="number" name="new_goal" value="{goals.get('daily_goal', 2100)}" style="margin:0; width:100%;"></div>
