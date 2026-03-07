@@ -23,34 +23,18 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
                     (date TEXT PRIMARY KEY, steps INTEGER, calories INTEGER, protein INTEGER)''')
     
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN calories INTEGER')
-    except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN protein INTEGER')
-    except: pass
+    # Prevenção de erros e criação de novas colunas
+    columns = ['calories INTEGER', 'protein INTEGER', 'water REAL', 'reading INTEGER', 'money REAL', 'sleep REAL', 'gym INTEGER DEFAULT 0', 'run INTEGER DEFAULT 0']
+    for col in columns:
+        try: conn.execute(f'ALTER TABLE daily_stats ADD COLUMN {col}')
+        except: pass
     try: conn.execute('ALTER TABLE logs ADD COLUMN recipe TEXT')
     except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN water REAL')
-    except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN reading INTEGER')
-    except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN money REAL')
-    except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN sleep REAL')
-    except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN gym INTEGER DEFAULT 0')
-    except: pass
-    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN run INTEGER DEFAULT 0')
-    except: pass
     
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_goal', '3000')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('protein_goal', '150')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('step_goal', '10000')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('water_goal', '2.5')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('reading_goal', '20')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('money_goal', '500')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('sleep_goal', '8')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('gym_goal', '4')")
-    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('run_goal', '3')")
+    defaults = [('daily_goal', '3000'), ('protein_goal', '150'), ('step_goal', '10000'), ('water_goal', '2.5'), ('reading_goal', '20'), ('money_goal', '500'), ('sleep_goal', '8'), ('gym_goal', '4'), ('run_goal', '3')]
+    for k, v in defaults:
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+        
     conn.commit()
     conn.close()
 
@@ -101,11 +85,12 @@ CSS = """
     .progress-fill-p { background: linear-gradient(90deg, #30d158, #32d74b); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; max-height: 250px; overflow-y: auto; }
     @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-    .checkbox-wrapper { display: flex; align-items: center; gap: 10px; background: #2c2c2e; padding: 15px; border-radius: 12px; cursor: pointer; border: 2px solid transparent; transition: 0.2s; width:100%; box-sizing:border-box; margin-bottom:10px; }
-    .checkbox-wrapper.checked { border-color: #30d158; background: rgba(48, 209, 88, 0.1); }
-    .checkbox-wrapper input { display: none; }
-    .checkbox-wrapper span { font-weight: bold; color: #8e8e93; }
-    .checkbox-wrapper.checked span { color: #30d158; }
+    
+    /* UI Checkboxes Elite de Treino */
+    .checkbox-wrapper { display: flex; align-items: center; justify-content: center; gap: 10px; background: #2c2c2e; padding: 20px; border-radius: 15px; cursor: pointer; border: 2px solid #3a3a3c; transition: 0.2s; width:100%; box-sizing:border-box; margin-bottom:15px; }
+    .checkbox-wrapper.checked { background: #30d158; border-color: #30d158; }
+    .checkbox-wrapper span { font-weight: bold; color: #fff; }
+    .checkbox-wrapper.checked span { color: #000; }
 </style>
 """
 
@@ -269,8 +254,6 @@ def history():
 
     cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/history?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/history?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
     rot_html = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
-    
-    # O CALENDÁRIO DE TREINO SEMANAL SEPARADO
     work_html = '<div style="display:flex; flex-direction:column; gap:15px;">'
 
     week_counter = 1
@@ -279,7 +262,6 @@ def history():
         run_week_count = 0
         has_current_month_days = False
         
-        # Iterar os dias para preencher Macros e Rotinas
         for day_date in week:
             d_str = day_date.strftime("%Y-%m-%d")
             d_num = day_date.day
@@ -342,7 +324,6 @@ def history():
                 cal_html += f'<a href="/edit_day/{d_str}?type=macros" style="background:{day_color}; border: 2px solid {border_c}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{stats_txt}</a>'
                 rot_html += f'<a href="/edit_day/{d_str}?type=routines" style="background:{day_color}; border: 2px solid {border_r}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{rot_txt}</a>'
 
-        # Construção da Semana de Treinos
         if has_current_month_days:
             gym_met = gym_week_count >= goal_gym
             run_met = run_week_count >= goal_run
@@ -466,7 +447,7 @@ def money():
 
     return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: center;"><p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold; text-transform:uppercase;">TOTAL GASTO ESTE MÊS</p><h1 style="font-size: 3.5rem; margin: 5px 0; color: {color_total};">{total_spent_month:.2f}€</h1><p style="color: #8e8e93; font-size: 0.85rem; margin: 0;">Orçamento: {goal_m:.2f}€ | Resta: {(goal_m - total_spent_month):.2f}€</p><div style="background:#2c2c2e; padding:10px; border-radius:10px; margin-top:15px;"><p style="margin:0; font-size:0.8rem; color:#8e8e93;">MÉDIA PERMITIDA PARA HOJE</p><p style="margin:0; font-size:1.2rem; font-weight:bold; color:#0a84ff;">{current_dynamic_avg:.2f} € / dia</p></div></div><div class="card" style="padding:15px;">{cal_html}</div><div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div></body></html>'
 
-# --- THE GOD RANK (O LENDÁRIO AZUL) ---
+# --- THE GOD RANK ---
 @app.route('/rank')
 def rank():
     conn = get_db_connection()
@@ -485,11 +466,9 @@ def rank():
     g_s = int(conn.execute("SELECT value FROM settings WHERE key='step_goal'").fetchone()['value'] or 10000)
     g_w = float(conn.execute("SELECT value FROM settings WHERE key='water_goal'").fetchone()['value'] or 2.5)
     g_sl = float(conn.execute("SELECT value FROM settings WHERE key='sleep_goal'").fetchone()['value'] or 8)
-    
     goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone()['value']
     g_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 500.0
     days_in_month = calendar.monthrange(y, m)[1]
-    
     conn.close()
 
     logs_dict = {row['date']: {'p': row['p']} for row in logs_data}
@@ -565,7 +544,15 @@ def rank():
     </body></html>
     """
 
-# --- PARSE SEGURO DOS FORMULÁRIOS DE EDIÇÃO ---
+# --- O ESCUDO DO PARSING ---
+def parse_val(v, is_float=False):
+    if v is None: return None # Se não foi submetido, não toca
+    v = str(v).strip()
+    if v == "": return 0      # Se o utilizador apagou, assume 0
+    v = v.replace(',', '.')
+    try: return float(v) if is_float else int(float(v))
+    except: return 0
+
 @app.route('/edit_day/<date>', methods=['GET', 'POST'])
 def edit_day(date):
     edit_type = request.args.get('type', 'macros')
@@ -574,29 +561,26 @@ def edit_day(date):
         row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
         if not row: conn.execute('INSERT INTO daily_stats (date) VALUES (?)', (date,))
         
-        # A Mágica de Isolamento que evita o Erro 500:
+        # Atualiza SÓ o que pertence a este formulário:
         if edit_type == 'macros':
-            c = request.form.get('calories')
-            p = request.form.get('protein')
-            s = request.form.get('steps')
-            c = int(float(c)) if c and c.strip() else None
-            p = int(float(p)) if p and p.strip() else None
-            s = int(float(s)) if s and s.strip() else None
-            conn.execute('UPDATE daily_stats SET calories=?, protein=?, steps=? WHERE date=?', (c, p, s, date))
+            c = parse_val(request.form.get('calories'), False)
+            p = parse_val(request.form.get('protein'), False)
+            s = parse_val(request.form.get('steps'), False)
+            if c is not None: conn.execute('UPDATE daily_stats SET calories=? WHERE date=?', (c, date))
+            if p is not None: conn.execute('UPDATE daily_stats SET protein=? WHERE date=?', (p, date))
+            if s is not None: conn.execute('UPDATE daily_stats SET steps=? WHERE date=?', (s, date))
             
         elif edit_type == 'routines':
-            w = request.form.get('water')
-            sl = request.form.get('sleep')
-            r = request.form.get('reading')
-            w = float(w.replace(',', '.')) if w and w.strip() else None
-            sl = float(sl.replace(',', '.')) if sl and sl.strip() else None
-            r = int(float(r)) if r and r.strip() else None
-            conn.execute('UPDATE daily_stats SET water=?, sleep=?, reading=? WHERE date=?', (w, sl, r, date))
+            w = parse_val(request.form.get('water'), True)
+            sl = parse_val(request.form.get('sleep'), True)
+            r = parse_val(request.form.get('reading'), False)
+            if w is not None: conn.execute('UPDATE daily_stats SET water=? WHERE date=?', (w, date))
+            if sl is not None: conn.execute('UPDATE daily_stats SET sleep=? WHERE date=?', (sl, date))
+            if r is not None: conn.execute('UPDATE daily_stats SET reading=? WHERE date=?', (r, date))
             
         elif edit_type == 'money':
-            m = request.form.get('money')
-            m = float(m.replace(',', '.')) if m and m.strip() else None
-            conn.execute('UPDATE daily_stats SET money=? WHERE date=?', (m, date))
+            m = parse_val(request.form.get('money'), True)
+            if m is not None: conn.execute('UPDATE daily_stats SET money=? WHERE date=?', (m, date))
             
         elif edit_type == 'workout':
             g = 1 if request.form.get('gym') == 'on' else 0
@@ -631,11 +615,11 @@ def edit_day(date):
         title_top = "MACROS E PASSOS"
     elif edit_type == 'workout':
         form_content = f"""
-        <label class="checkbox-wrapper {s_gym}" id="gym_lbl" onclick="this.classList.toggle('checked'); document.getElementById('gym_chk').checked = !document.getElementById('gym_chk').checked;">
-            <input type="checkbox" id="gym_chk" name="gym" {s_gym}> <span style="font-size:1.2rem;">🏋️‍♂️ Fui ao Ginásio</span>
+        <label class="checkbox-wrapper {s_gym}" id="gym_lbl" onclick="this.classList.toggle('checked'); document.getElementById('gym_chk').checked = this.classList.contains('checked');">
+            <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''}> <span style="font-size:1.2rem;">🏋️‍♂️ Fui ao Ginásio</span>
         </label>
-        <label class="checkbox-wrapper {s_run}" id="run_lbl" onclick="this.classList.toggle('checked'); document.getElementById('run_chk').checked = !document.getElementById('run_chk').checked;">
-            <input type="checkbox" id="run_chk" name="run" {s_run}> <span style="font-size:1.2rem;">🏃 Fui Correr</span>
+        <label class="checkbox-wrapper {s_run}" id="run_lbl" onclick="this.classList.toggle('checked'); document.getElementById('run_chk').checked = this.classList.contains('checked');">
+            <input type="checkbox" id="run_chk" name="run" {'checked' if s_run else ''}> <span style="font-size:1.2rem;">🏃 Fui Correr</span>
         </label>
         """
         extra_html = ""
@@ -653,7 +637,6 @@ def edit_day(date):
 
 @app.route('/export_db')
 def export_db(): return send_file('tracker.db', as_attachment=True, download_name=f'tracker_backup_{datetime.now().strftime("%Y%m%d")}.db')
-
 @app.route('/import_db', methods=['POST'])
 def import_db():
     if 'db_file' not in request.files: return redirect(url_for('manage_favs'))
