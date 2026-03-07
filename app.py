@@ -23,11 +23,23 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
                     (date TEXT PRIMARY KEY, steps INTEGER, calories INTEGER, protein INTEGER)''')
     
-    columns = ['calories INTEGER', 'protein INTEGER', 'water REAL', 'reading INTEGER', 'money REAL', 'sleep REAL', 'gym INTEGER DEFAULT 0', 'run INTEGER DEFAULT 0']
-    for col in columns:
-        try: conn.execute(f'ALTER TABLE daily_stats ADD COLUMN {col}')
-        except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN calories INTEGER')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN protein INTEGER')
+    except: pass
     try: conn.execute('ALTER TABLE logs ADD COLUMN recipe TEXT')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN water REAL')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN reading INTEGER')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN money REAL')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN sleep REAL')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN gym INTEGER DEFAULT 0')
+    except: pass
+    try: conn.execute('ALTER TABLE daily_stats ADD COLUMN run INTEGER DEFAULT 0')
     except: pass
     
     defaults = [('daily_goal', '3000'), ('protein_goal', '150'), ('step_goal', '10000'), ('water_goal', '2.5'), ('reading_goal', '20'), ('money_goal', '500'), ('sleep_goal', '8'), ('gym_goal', '4'), ('run_goal', '3')]
@@ -166,6 +178,7 @@ def home():
 
     pct_c = min((total_c / goal_c) * 100, 100) if goal_c > 0 else 0
     pct_p = min((total_p / goal_p) * 100, 100) if goal_p > 0 else 0
+
     color_c = "#30d158" if total_c >= goal_c else "#fff"
     color_p = "#30d158" if total_p >= goal_p else "#fff"
 
@@ -216,7 +229,6 @@ def history():
     goal_run = int(conn.execute("SELECT value FROM settings WHERE key='run_goal'").fetchone()['value'] or 3)
     conn.close()
 
-    # O SEGREDO QUE EVITA O ERRO 500 ESTÁ AQUI: dict(row)
     logs_dict = {row['date']: {'c': row['c'], 'p': row['p']} for row in logs_data}
     stats_dict = {row['date']: dict(row) for row in stats_data}
     cal = calendar.Calendar(firstweekday=0)
@@ -228,7 +240,6 @@ def history():
     rot_html = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
     work_html = '<div style="display:flex; flex-direction:column; gap:15px;">'
 
-    week_counter = 1
     for week in month_days:
         gym_week_count = 0; run_week_count = 0; has_current_month_days = False
         
@@ -243,7 +254,7 @@ def history():
             s_c = s_row.get('calories'); s_p = s_row.get('protein'); s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0
             gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
             
-            if is_current_month and not is_future:
+            if d_str <= today_str:
                 gym_week_count += gym_d; run_week_count += run_d
             
             final_c = s_c if s_c is not None else l_c; final_p = s_p if s_p is not None else l_p
@@ -290,7 +301,7 @@ def history():
                 elif gym_met or run_met: border_wk = "#ff9f0a"
                 else: border_wk = "#ff453a"
                 
-            work_html += f'<div style="border: 2px solid {border_wk}; border-radius:15px; padding:10px; background:#1c1c1e;"><div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:0.8rem; font-weight:bold; color:#fff; padding: 0 5px;"><span>SEMANA {week_counter}</span><span>🏋️‍♂️ {gym_week_count}/{goal_gym} &nbsp;|&nbsp; 🏃 {run_week_count}/{goal_run}</span></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
+            work_html += f'<div style="border: 2px solid {border_wk}; border-radius:15px; padding:10px; background:#1c1c1e; margin-bottom:10px;"><div style="display:flex; justify-content:center; margin-bottom:10px; font-size:0.85rem; font-weight:bold; color:#fff; padding: 0 5px;"><span>🏋️‍♂️ {gym_week_count}/{goal_gym} &nbsp;|&nbsp; 🏃 {run_week_count}/{goal_run}</span></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
             
             for day_date in week:
                 d_str = day_date.strftime("%Y-%m-%d"); d_num = day_date.day
@@ -298,17 +309,26 @@ def history():
                 s_row = stats_dict.get(d_str, {})
                 gym_d = int(s_row.get('gym') or 0); run_d = int(s_row.get('run') or 0)
                 
-                day_color = "rgba(10, 132, 255, 0.15)" if d_str == today_str else "#2c2c2e"
+                day_color = "#2c2c2e"
+                border_c_work = "1px solid #3a3a3c"
+                
+                if d_str == today_str:
+                    day_color = "rgba(10, 132, 255, 0.15)"
+                    border_c_work = "1px solid #0a84ff"
+                
+                if gym_d > 0 or run_d > 0:
+                    day_color = "rgba(10, 132, 255, 0.2)"
+                    border_c_work = "1px solid #0a84ff"
+                    
                 opacity = "1" if is_current_month else "0.3"
                 icons = ""
                 if gym_d: icons += "🏋️‍♂️"
                 if run_d: icons += "🏃"
                 if not icons: icons = "&nbsp;"
                 
-                if is_future: work_html += f'<div style="background:{day_color}; border: 1px solid transparent; border-radius:10px; padding:8px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span></div>'
-                else: work_html += f'<a href="/edit_day/{d_str}?type=workout" style="background:{day_color}; border: 1px solid #3a3a3c; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span><div style="font-size:0.65rem; margin-top:2px;">{icons}</div></a>'
+                if is_future: work_html += f'<div style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:8px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span></div>'
+                else: work_html += f'<a href="/edit_day/{d_str}?type=workout" style="background:{day_color}; border: {border_c_work}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span><div style="font-size:0.65rem; margin-top:2px;">{icons}</div></a>'
             work_html += "</div></div>"
-            week_counter += 1
 
     cal_html += "</div>"; rot_html += "</div>"; work_html += "</div>"
 
@@ -331,6 +351,7 @@ def money():
     prev_m = (target_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
     next_m = (target_date.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m')
     month_names = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    
     goal_m_raw = conn.execute("SELECT value FROM settings WHERE key='money_goal'").fetchone()['value']
     goal_m = float(goal_m_raw.replace(',', '.')) if goal_m_raw else 500.0
     stats_data = conn.execute("SELECT * FROM daily_stats WHERE date LIKE ?", (f"{y}-{m:02d}-%",)).fetchall()
@@ -349,6 +370,9 @@ def money():
         cumulative_spent += (stats_dict.get(d_str_loop, {}).get('money') or 0)
         
     total_spent_month = cumulative_spent
+    today_spent = stats_dict.get(today_str, {}).get('money') or 0
+    left_today = current_dynamic_avg - today_spent
+    
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdatescalendar(y, m)
 
@@ -377,7 +401,27 @@ def money():
     color_total = "#ff453a" if total_spent_month > goal_m else "#30d158"
     if current_dynamic_avg == 0 and datetime.strptime(today_str, "%Y-%m-%d").month != m: current_dynamic_avg = goal_m / days_in_month
 
-    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: center;"><p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold; text-transform:uppercase;">TOTAL GASTO ESTE MÊS</p><h1 style="font-size: 3.5rem; margin: 5px 0; color: {color_total};">{total_spent_month:.2f}€</h1><p style="color: #8e8e93; font-size: 0.85rem; margin: 0;">Orçamento: {goal_m:.2f}€ | Resta: {(goal_m - total_spent_month):.2f}€</p><div style="background:#2c2c2e; padding:10px; border-radius:10px; margin-top:15px;"><p style="margin:0; font-size:0.8rem; color:#8e8e93;">MÉDIA PERMITIDA PARA HOJE</p><p style="margin:0; font-size:1.2rem; font-weight:bold; color:#0a84ff;">{current_dynamic_avg:.2f} € / dia</p></div></div><div class="card" style="padding:15px;">{cal_html}</div><div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div></body></html>'
+    return f"""
+    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
+        <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: center;">
+            <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold; text-transform:uppercase;">TOTAL GASTO ESTE MÊS</p>
+            <h1 style="font-size: 3.5rem; margin: 5px 0; color: {color_total};">{total_spent_month:.2f}€</h1>
+            <p style="color: #8e8e93; font-size: 0.85rem; margin: 0;">Orçamento: {goal_m:.2f}€ | Resta do Mês: {(goal_m - total_spent_month):.2f}€</p>
+            <div style="background:#2c2c2e; padding:15px; border-radius:15px; margin-top:15px; display:flex; justify-content:space-around;">
+                <div>
+                    <p style="margin:0; font-size:0.75rem; color:#8e8e93;">MÉDIA DO DIA</p>
+                    <p style="margin:0; font-size:1.1rem; font-weight:bold; color:#0a84ff;">{current_dynamic_avg:.2f}€</p>
+                </div>
+                <div style="border-left: 1px solid #3a3a3c; padding-left: 15px;">
+                    <p style="margin:0; font-size:0.75rem; color:#8e8e93;">RESTA PARA HOJE</p>
+                    <p style="margin:0; font-size:1.1rem; font-weight:bold; color:{'#30d158' if left_today >= 0 else '#ff453a'};">{left_today:.2f}€</p>
+                </div>
+            </div>
+        </div>
+        <div class="card" style="padding:15px;">{cal_html}</div>
+        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>HOJE</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>HISTÓRICO</a><a href="/money" class="nav-item active"><span style="font-size:1.2rem;">💸</span>DINHEIRO</a><a href="/manage_favs" class="nav-item"><span style="font-size:1.2rem;">⚙️</span>DEFINIÇÕES</a></div>
+    </body></html>
+    """
 
 @app.route('/rank')
 def rank():
@@ -438,18 +482,19 @@ def rank():
                 if s_s >= g_s: score += 2
                 if s_w >= g_w: score += 2
                 if s_m <= limit_m: score += 1
-                if gym_d > 0 or run_d > 0: score += 1
+                if gym_d > 0 or run_d > 0: score += 2
 
             bg_color = "transparent"; txt_color = "#fff"
             if not is_future and is_current_month:
-                if not (f_p > 0 or s_sl > 0 or s_m > 0 or s_w > 0 or s_s > 0 or gym_d > 0 or run_d > 0):
+                has_any_data = f_p > 0 or s_sl > 0 or s_m > 0 or s_w > 0 or s_s > 0 or gym_d > 0 or run_d > 0
+                if not has_any_data:
                     bg_color = "transparent"; score_display = "-"
                 else:
                     if score == 0: bg_color = "rgba(255, 69, 58, 0.4)"; txt_color = "#fff"
                     elif score <= 4: bg_color = "rgba(255, 159, 10, 0.5)"; txt_color = "#fff"
-                    elif score <= 7: bg_color = "rgba(255, 214, 10, 0.5)"; txt_color = "#000"
-                    elif score <= 10: bg_color = "rgba(48, 209, 88, 0.6)"; txt_color = "#000"
-                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff" # LENDÁRIO AZUL
+                    elif score <= 8: bg_color = "rgba(255, 214, 10, 0.5)"; txt_color = "#000"
+                    elif score <= 11: bg_color = "rgba(48, 209, 88, 0.6)"; txt_color = "#000"
+                    else: bg_color = "rgba(10, 132, 255, 0.8)"; txt_color = "#fff" # LENDÁRIO AZUL 12 PTS
                     score_display = f"{score}"
             else: score_display = "-"
                 
@@ -464,18 +509,18 @@ def rank():
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: 1px solid #0a84ff; padding-bottom:10px;">
             <h2 style="color:#0a84ff; margin-top:0;">GOD RANK 🏆</h2>
-            <p style="font-size:0.8rem; color:#8e8e93; margin-bottom:0;">Avaliação Diária (0 a 11):<br>Prot (3) | Sono (2) | Passos (2) | Água (2)<br>Treino (1) | € na Média (1)</p>
+            <p style="font-size:0.8rem; color:#8e8e93; margin-bottom:0;">Avaliação Diária (0 a 12):<br>Prot (3) | Sono (2) | Passos (2)<br>Água (2) | Treino (2) | € na Média (1)</p>
         </div>
         <div class="card" style="padding:15px;">{cal_html}</div>
         <a href="/manage_favs" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar às Definições</a>
     </body></html>
     """
 
-# --- PARSE SEGURO DOS FORMULÁRIOS DE EDIÇÃO (O QUE RESOLVEU O ERRO 500) ---
+# --- O ESCUDO DO PARSING BLINDADO ---
 def parse_val(v, is_float=False):
-    if v is None: return None # O formulário nem enviou este campo (ex: estás noutra aba)
+    if v is None: return None # Formulário nem mandou isto
     v = str(v).strip()
-    if v == "": return "CLEAR" # Apagaste o valor de propósito (volta ao zero/auto)
+    if v == "": return "CLEAR" # Apagou o valor de propósito
     v = v.replace(',', '.')
     try: return float(v) if is_float else int(float(v))
     except: return "CLEAR"
@@ -560,7 +605,7 @@ def edit_day(date):
         extra_html = ""
         title_top = "FINANÇAS"
 
-    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDITAR {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin-top:20px;">GRAVAR DIA</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar atrás</a></div>{extra_html}</body></html>'
+    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDITAR {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin:top:20px;">GRAVAR DIA</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar atrás</a></div>{extra_html}</body></html>'
 
 @app.route('/export_db')
 def export_db(): return send_file('tracker.db', as_attachment=True, download_name=f'tracker_backup_{datetime.now().strftime("%Y%m%d")}.db')
