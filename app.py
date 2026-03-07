@@ -22,7 +22,6 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS daily_stats
                     (date TEXT PRIMARY KEY, steps INTEGER, calories INTEGER, protein INTEGER)''')
     
-    # Prevenção de updates para não perderes os dados
     try: conn.execute('ALTER TABLE daily_stats ADD COLUMN calories INTEGER')
     except: pass
     try: conn.execute('ALTER TABLE daily_stats ADD COLUMN protein INTEGER')
@@ -48,7 +47,7 @@ def init_db():
 init_db()
 
 def update_daily_stat(date, field, value, add=False):
-    if not value: return
+    if not value or value == "": return
     conn = get_db_connection()
     row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
     if row:
@@ -77,6 +76,7 @@ CSS = """
     input { background: #2c2c2e; border: none; border-radius: 12px; color: #fff; padding: 15px; margin: 8px 0; width: 90%; font-size: 16px; -webkit-appearance: none; box-sizing: border-box; }
     .btn-main { background: #0a84ff; color: #fff; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; }
     .btn-green { background: #30d158; color: #000; border: none; border-radius: 15px; padding: 16px; width: 100%; font-weight: bold; font-size: 16px; margin-top: 10px; cursor: pointer; display: block; text-decoration: none; }
+    .btn-orange { background: #ff9f0a; color: #000; border: none; border-radius: 12px; padding: 14px; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
     .btn-red { background: #ff453a; color: #fff; border: none; border-radius: 12px; padding: 10px; font-weight: bold; font-size: 14px; cursor: pointer; margin-top: 10px; }
     .sug-container { display: flex; overflow-x: auto; gap: 10px; padding: 10px 0; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .sug-item { background: #2c2c2e; color: #0a84ff; padding: 15px 18px; border-radius: 18px; text-decoration: none; min-width: 140px; font-size: 0.85rem; border: 1px solid #3a3a3c; flex-shrink: 0; cursor: pointer; text-align: left; }
@@ -89,6 +89,7 @@ CSS = """
     .progress-fill-c { background: linear-gradient(90deg, #0a84ff, #5e5ce6); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .progress-fill-p { background: linear-gradient(90deg, #30d158, #32d74b); height: 100%; border-radius: 10px; transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
     .recipe-list { text-align: left; color: #8e8e93; font-size: 0.85rem; margin-top: 10px; padding: 10px; background: #000; border-radius: 10px; min-height: 40px; max-height: 250px; overflow-y: auto; }
+    @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 </style>
 """
 
@@ -96,15 +97,24 @@ CSS = """
 def home():
     conn = get_db_connection()
     today = datetime.now().strftime("%Y-%m-%d")
+    yesterday_dt = datetime.now() - timedelta(days=1)
+    yesterday_str = yesterday_dt.strftime("%Y-%m-%d")
+    yesterday_display = yesterday_dt.strftime("%d/%m")
     
     if request.method == 'POST':
+        # Relatório Matinal dinâmico
+        if request.form.get('yesterday_steps') or request.form.get('yesterday_water') or request.form.get('yesterday_reading'):
+            if request.form.get('yesterday_steps'): update_daily_stat(yesterday_str, 'steps', request.form.get('yesterday_steps'))
+            if request.form.get('yesterday_water'): update_daily_stat(yesterday_str, 'water', request.form.get('yesterday_water'))
+            if request.form.get('yesterday_reading'): update_daily_stat(yesterday_str, 'reading', request.form.get('yesterday_reading'))
+            return redirect(url_for('home'))
+            
+        # Add rápido de dinheiro
         if request.form.get('add_money'):
             update_daily_stat(today, 'money', request.form.get('add_money'), add=True)
             return redirect(url_for('home'))
-        if request.form.get('add_water'):
-            update_daily_stat(today, 'water', request.form.get('add_water'), add=True)
-            return redirect(url_for('home'))
 
+        # Refeições normais
         f_name = request.form.get('food_name') or "Refeição"
         c_val = request.form.get('calories')
         p_val = request.form.get('protein')
@@ -118,6 +128,35 @@ def home():
                 conn.execute('INSERT OR REPLACE INTO favorites (food_name, calories, protein, recipe) VALUES (?, ?, ?, ?)',
                              (f_name, int(c_val), int(p_val), ""))
             conn.commit()
+
+    # Lógica de Inteligência Artificial para o Relatório Matinal
+    missing_routines_html = ""
+    step_record = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (yesterday_str,)).fetchone()
+    y_steps = step_record['steps'] if step_record and 'steps' in step_record.keys() else None
+    y_water = step_record['water'] if step_record and 'water' in step_record.keys() else None
+    y_read = step_record['reading'] if step_record and 'reading' in step_record.keys() else None
+
+    missing_inputs = []
+    if y_steps is None: missing_inputs.append('<input type="number" name="yesterday_steps" placeholder="👣 Passos" style="flex:1; width:100%; margin:0; background:#000; font-size:0.85rem;">')
+    if y_water is None: missing_inputs.append('<input type="number" step="0.1" name="yesterday_water" placeholder="💧 Água (L)" style="flex:1; width:100%; margin:0; background:#000; font-size:0.85rem;">')
+    if y_read is None: missing_inputs.append('<input type="number" name="yesterday_reading" placeholder="📖 Ler (Min)" style="flex:1; width:100%; margin:0; background:#000; font-size:0.85rem;">')
+
+    had_logs_yesterday = conn.execute('SELECT id FROM logs WHERE date = ? LIMIT 1', (yesterday_str,)).fetchone()
+    
+    if missing_inputs and (had_logs_yesterday or step_record):
+        inputs_html = "".join(missing_inputs)
+        missing_routines_html = f"""
+        <div class="card" style="border: 2px solid #ff9f0a; animation: popIn 0.5s ease; background: rgba(255, 159, 10, 0.1);">
+            <h3 style="color:#ff9f0a; margin-top:0;">📋 RELATÓRIO DE ONTEM ({yesterday_display})</h3>
+            <p style="font-size:0.85rem; color:#8e8e93; margin-top:0;">Máquina, faltam-te estas rotinas de ontem. Manda aí os números finais!</p>
+            <form method="POST" style="display:flex; flex-direction:column; gap:10px;">
+                <div style="display:flex; gap:8px; width:100%;">
+                    {inputs_html}
+                </div>
+                <button type="submit" class="btn-orange" style="margin:0;">GRAVAR ROTINAS</button>
+            </form>
+        </div>
+        """
 
     logs = conn.execute('SELECT * FROM logs WHERE date = ? ORDER BY id DESC', (today,)).fetchall()
     favs = conn.execute('SELECT * FROM favorites').fetchall()
@@ -155,6 +194,7 @@ def home():
 
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">{CSS}</head><body>
+        {missing_routines_html}
         <div class="card" style="background: linear-gradient(145deg, #1c1c1e, #000); border: none; text-align: left;">
             <p style="color: #8e8e93; margin: 0; font-size: 0.8rem; font-weight: bold;">HOJE</p>
             <h1 style="font-size: 2.5rem; margin: 5px 0 0 0; color: {color_c}; transition: color 0.3s;">
@@ -167,9 +207,12 @@ def home():
             <div class="progress-track"><div class="progress-fill-p" style="width: {pct_p}%;"></div></div>
         </div>
         
-        <div class="card" style="display:flex; gap:10px; padding:15px;">
-            <form method="POST" style="flex:1;"><input type="number" step="0.1" name="add_water" placeholder="+ Água (L)" style="width:100%; margin:0; font-size:0.8rem;"><button class="btn-main" style="padding:10px; font-size:0.8rem;">ADD</button></form>
-            <form method="POST" style="flex:1;"><input type="number" step="0.01" name="add_money" placeholder="+ Gasto (€)" style="width:100%; margin:0; font-size:0.8rem;"><button class="btn-main" style="padding:10px; font-size:0.8rem; background:#30d158; color:#000;">ADD</button></form>
+        <div class="card" style="padding:15px;">
+            <h3 class="day-header" style="margin-top:0; color:#8e8e93;">DINHEIRO GASTO HOJE 💸</h3>
+            <form method="POST" style="display:flex; gap:10px;">
+                <input type="number" step="0.01" name="add_money" placeholder="Ex: 1.50 (€)" style="flex:1; margin:0; font-size:0.9rem;">
+                <button class="btn-main" style="margin:0; padding:10px 20px; font-size:0.9rem; background:#30d158; color:#000;">REGISTAR</button>
+            </form>
         </div>
 
         <a href="/build_meal" class="btn-green" style="margin-bottom: 20px;">🥗 CRIAR REFEIÇÃO COMPOSTA</a>
@@ -222,6 +265,7 @@ def history():
     stats_dict = {row['date']: row for row in stats_data}
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdatescalendar(y, m)
+
     today_str = datetime.now().strftime("%Y-%m-%d")
 
     cal_html = f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"><a href="/history?month={prev_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&lt;</a><h2 style="color:#fff; margin:0; font-size:1.2rem; text-transform:uppercase;">{month_names[m-1]} {y}</h2><a href="/history?month={next_m}" style="color:#0a84ff; text-decoration:none; font-size:1.8rem; font-weight:bold; padding:0 15px;">&gt;</a></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; text-align:center; color:#8e8e93; font-size:0.8rem; margin-bottom:10px; font-weight:bold;"><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div><div>D</div></div><div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;">'
@@ -278,7 +322,6 @@ def history():
                 cal_html += f'<div style="background:{day_color}; border: 2px solid transparent; border-radius:10px; padding:8px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span></div>'
                 rot_html += f'<div style="background:{day_color}; border: 2px solid transparent; border-radius:10px; padding:8px 0; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px;"><span style="font-weight:bold; font-size:0.9rem; color:#444;">{d_num}</span></div>'
             else:
-                # O Truque: ?type=macros ou ?type=routines no link
                 cal_html += f'<a href="/edit_day/{d_str}?type=macros" style="background:{day_color}; border: 2px solid {border_c}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{stats_txt}</a>'
                 rot_html += f'<a href="/edit_day/{d_str}?type=routines" style="background:{day_color}; border: 2px solid {border_r}; border-radius:10px; padding:8px 0; text-decoration:none; color:#fff; opacity:{opacity}; display:flex; flex-direction:column; align-items:center; min-height:55px; box-sizing:border-box; transition:0.2s;"><span style="font-weight:bold; font-size:0.9rem;">{d_num}</span>{rot_txt}</a>'
                 
@@ -321,7 +364,6 @@ def money():
     days_in_month = calendar.monthrange(y, m)[1]
     stats_dict = {row['date']: row['money'] or 0 for row in stats_data}
     
-    # A MAGIA DO ORÇAMENTO DINÂMICO
     day_limits = {}
     cumulative_spent = 0
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -330,11 +372,8 @@ def money():
     for day_num in range(1, days_in_month + 1):
         d_str_loop = f"{y}-{m:02d}-{day_num:02d}"
         days_left = days_in_month - day_num + 1
-        
-        # A média é calculada com o que sobrou nos dias anteriores a dividir pelo que falta do mês!
         current_limit = (goal_m - cumulative_spent) / days_left if days_left > 0 else 0
         day_limits[d_str_loop] = current_limit
-        
         if d_str_loop == today_str: current_dynamic_avg = current_limit
         cumulative_spent += stats_dict.get(d_str_loop, 0)
         
@@ -356,9 +395,9 @@ def money():
             
             border_c = "transparent"
             if not is_future and is_current_month:
-                if spent == 0: border_c = "#30d158" # Verde (não gastou nada, aumentou a média de amanhã)
-                elif spent <= daily_limit: border_c = "#30d158" # Verde (Abaixo da média limite do dia)
-                else: border_c = "#ff453a" # Vermelho (Passou do orçamento para aquele dia)
+                if spent == 0: border_c = "#30d158"
+                elif spent <= daily_limit: border_c = "#30d158"
+                else: border_c = "#ff453a"
 
             day_color = "rgba(10, 132, 255, 0.15)" if d_str == today_str else "#2c2c2e"
             opacity = "1" if is_current_month else "0.3"
@@ -372,7 +411,7 @@ def money():
 
     color_total = "#ff453a" if total_spent_month > goal_m else "#30d158"
     if current_dynamic_avg == 0 and datetime.strptime(today_str, "%Y-%m-%d").month != m:
-        current_dynamic_avg = goal_m / days_in_month # Mostra média fixa se vires meses passados
+        current_dynamic_avg = goal_m / days_in_month
 
     return f"""
     <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
@@ -395,7 +434,6 @@ def edit_day(date):
     edit_type = request.args.get('type', 'macros')
     conn = get_db_connection()
     if request.method == 'POST':
-        # Vai buscar APENAS os campos do formulário submetido e atualiza sem mexer nos outros
         fields = ['calories', 'protein', 'steps', 'water', 'reading', 'money']
         row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date,)).fetchone()
         if not row: conn.execute('INSERT INTO daily_stats (date) VALUES (?)', (date,))
@@ -405,7 +443,6 @@ def edit_day(date):
                 final_val = None if val.strip() == "" else (float(val) if f in ('water', 'money') else int(val))
                 conn.execute(f'UPDATE daily_stats SET {f}=? WHERE date=?', (final_val, date))
         conn.commit(); conn.close()
-        
         if edit_type == 'money': return redirect(url_for('money', month=date[:7]))
         return redirect(url_for('history', month=date[:7]))
         
@@ -424,44 +461,20 @@ def edit_day(date):
     display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d %b %Y")
     html_logs = "".join([f'<div class="log-item"><div style="text-align:left;"><b>{l["food_name"]}</b> {get_badge(l["recipe"])}<br><small style="color:#8e8e93;">{l["timestamp"]} • {l["calories"]} kcal | {l["protein"]}g Prot</small></div><div><a href="/edit_log/{l["id"]}" style="color:#0a84ff; text-decoration:none; font-weight:bold; margin-right:15px; font-size:0.85rem;">EDITAR</a><a href="/delete/{l["id"]}" style="color:#ff453a; text-decoration:none; font-weight:bold; font-size:1.1rem;">✕</a></div></div>' for l in logs])
     
-    # Render condicional dependendo de qual calendário clicaste
     if edit_type == 'macros':
-        form_content = f"""
-        <label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Calorias (Kcal):</label><input type="number" name="calories" value="{s_c}" placeholder="Auto: {logs_c} kcal" style="margin:0; width:100%; margin-bottom:10px;">
-        <label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Proteína (g):</label><input type="number" name="protein" value="{s_p}" placeholder="Auto: {logs_p} g" style="margin:0; width:100%; margin-bottom:10px;">
-        <label style="color:#ff9f0a; font-weight:bold; font-size:0.9rem;">Passos 👣:</label><input type="number" name="steps" value="{s_s}" placeholder="Ex: 10500" style="margin:0; width:100%;">
-        """
+        form_content = f'<label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Calorias (Kcal):</label><input type="number" name="calories" value="{s_c}" placeholder="Auto: {logs_c} kcal" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#8e8e93; font-weight:bold; font-size:0.9rem;">Proteína (g):</label><input type="number" name="protein" value="{s_p}" placeholder="Auto: {logs_p} g" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#ff9f0a; font-weight:bold; font-size:0.9rem;">Passos 👣:</label><input type="number" name="steps" value="{s_s}" placeholder="Ex: 10500" style="margin:0; width:100%;">'
         extra_html = f'<h3 class="day-header">DIÁRIO DESSE DIA</h3>{html_logs or "<p style=\'color:#444; font-size:0.9rem;\'>Nenhuma refeição registada.</p>"}'
         title_top = "MACROS E PASSOS"
-    
     elif edit_type == 'routines':
-        form_content = f"""
-        <label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Água 💧 (Litros):</label><input type="number" step="0.1" name="water" value="{s_w}" placeholder="Ex: 2.5" style="margin:0; width:100%; margin-bottom:10px;">
-        <label style="color:#5e5ce6; font-weight:bold; font-size:0.9rem;">Leitura 📖 (Minutos):</label><input type="number" name="reading" value="{s_r}" placeholder="Ex: 20" style="margin:0; width:100%;">
-        """
+        form_content = f'<label style="color:#0a84ff; font-weight:bold; font-size:0.9rem;">Água 💧 (Litros):</label><input type="number" step="0.1" name="water" value="{s_w}" placeholder="Ex: 2.5" style="margin:0; width:100%; margin-bottom:10px;"><label style="color:#5e5ce6; font-weight:bold; font-size:0.9rem;">Leitura 📖 (Minutos):</label><input type="number" name="reading" value="{s_r}" placeholder="Ex: 20" style="margin:0; width:100%;">'
         extra_html = ""
         title_top = "ROTINAS"
-        
     elif edit_type == 'money':
-        form_content = f"""
-        <label style="color:#30d158; font-weight:bold; font-size:0.9rem;">Dinheiro Gasto 💸 (€):</label><input type="number" step="0.01" name="money" value="{s_m}" placeholder="Ex: 15.50" style="margin:0; width:100%;">
-        """
+        form_content = f'<label style="color:#30d158; font-weight:bold; font-size:0.9rem;">Dinheiro Gasto 💸 (€):</label><input type="number" step="0.01" name="money" value="{s_m}" placeholder="Ex: 15.50" style="margin:0; width:100%;">'
         extra_html = ""
         title_top = "FINANÇAS"
 
-    return f"""
-    <!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2>
-        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDITAR {title_top}</h3>
-            <form method="POST" action="/edit_day/{date}?type={edit_type}">
-                <div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div>
-                <button type="submit" class="btn-main" style="margin-top:20px;">GRAVAR DIA</button>
-            </form>
-            <a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar atrás</a>
-        </div>
-        {extra_html}
-    </body></html>
-    """
+    return f'<!DOCTYPE html><html lang="pt"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDITAR {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin-top:20px;">GRAVAR DIA</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Voltar atrás</a></div>{extra_html}</body></html>'
 
 @app.route('/build_meal', methods=['GET', 'POST'])
 def build_meal():
