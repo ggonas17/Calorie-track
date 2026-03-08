@@ -28,7 +28,7 @@ def init_db():
         'money REAL', 'sleep REAL', 'gym INTEGER DEFAULT 0', 'run INTEGER DEFAULT 0',
         'notes TEXT', 'bible INTEGER DEFAULT 0',
         'goal_c INTEGER', 'goal_p INTEGER', 'goal_s INTEGER', 'goal_w REAL',
-        'planned_g TEXT', 'planned_r TEXT'
+        'planned_g TEXT', 'planned_r TEXT', 'overridden INTEGER DEFAULT 0'
     ]
     for col in columns_daily:
         try: conn.execute(f'ALTER TABLE daily_stats ADD COLUMN {col}')
@@ -44,7 +44,8 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS routines (id INTEGER PRIMARY KEY AUTOINCREMENT, start_date TEXT, end_date TEXT, schedule TEXT)''')
     
     defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), 
-                ('water_goal', '2.5'), ('money_goal', '300'), ('sleep_goal', '7.5')]
+                ('water_goal', '2.5'), ('money_goal', '300'), ('sleep_goal', '7.5'),
+                ('cal_mode', 'static'), ('cal_gym', '2500'), ('cal_run', '2300'), ('cal_both', '2800'), ('cal_rest', '2000')]
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
@@ -62,19 +63,43 @@ def get_routine_for_date(conn, d_str):
 
 def ensure_daily_goals(date_str):
     conn = get_db_connection()
-    row = conn.execute('SELECT goal_p, planned_g FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
-    if not row or row['goal_p'] is None or row['planned_g'] is None:
-        settings = {r['key']: r['value'] for r in conn.execute("SELECT * FROM settings").fetchall()}
-        g_c = int(settings.get('daily_goal', 2100)); g_p = int(settings.get('protein_goal', 160))
-        g_s = int(settings.get('step_goal', 10000)); g_w = float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
+    row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
+    settings = {r['key']: r['value'] for r in conn.execute("SELECT * FROM settings").fetchall()}
+    
+    routine = get_routine_for_date(conn, date_str)
+    wd = str(datetime.strptime(date_str, "%Y-%m-%d").weekday())
+    
+    overridden = row['overridden'] if row and 'overridden' in row.keys() else 0
+    if overridden:
+        p_g = row['planned_g'] if row['planned_g'] is not None else ""
+        p_r = row['planned_r'] if row['planned_r'] is not None else ""
+    else:
+        p_g = routine.get(wd, {}).get("g", "")
+        p_r = routine.get(wd, {}).get("r", "")
         
-        routine = get_routine_for_date(conn, date_str)
-        wd = str(datetime.strptime(date_str, "%Y-%m-%d").weekday())
-        p_g = routine.get(wd, {}).get("g", ""); p_r = routine.get(wd, {}).get("r", "")
-        
-        if not row: conn.execute('INSERT INTO daily_stats (date, goal_c, goal_p, goal_s, goal_w, planned_g, planned_r) VALUES (?, ?, ?, ?, ?, ?, ?)', (date_str, g_c, g_p, g_s, g_w, p_g, p_r))
-        else: conn.execute('UPDATE daily_stats SET goal_c=?, goal_p=?, goal_s=?, goal_w=?, planned_g=?, planned_r=? WHERE date=?', (g_c, g_p, g_s, g_w, p_g, p_r, date_str))
-        conn.commit()
+    cal_mode = settings.get('cal_mode', 'static')
+    if cal_mode == 'dynamic':
+        has_g = bool(p_g)
+        has_r = bool(p_r)
+        if has_g and has_r: g_c = int(float(settings.get('cal_both', 2800)))
+        elif has_g: g_c = int(float(settings.get('cal_gym', 2500)))
+        elif has_r: g_c = int(float(settings.get('cal_run', 2300)))
+        else: g_c = int(float(settings.get('cal_rest', 2000)))
+    else:
+        g_c = int(float(settings.get('daily_goal', 2100)))
+
+    g_p = int(float(settings.get('protein_goal', 160)))
+    g_s = int(float(settings.get('step_goal', 10000)))
+    g_w = float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
+    
+    if not row:
+        conn.execute('INSERT INTO daily_stats (date, goal_c, goal_p, goal_s, goal_w, planned_g, planned_r, overridden) VALUES (?, ?, ?, ?, ?, ?, ?, 0)', (date_str, g_c, g_p, g_s, g_w, p_g, p_r))
+    else:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if date_str >= today_str:
+            conn.execute('UPDATE daily_stats SET goal_c=?, goal_p=?, goal_s=?, goal_w=?, planned_g=?, planned_r=? WHERE date=?', (g_c, g_p, g_s, g_w, p_g, p_r, date_str))
+    
+    conn.commit()
     conn.close()
 
 def get_streak(conn):
@@ -96,8 +121,8 @@ def get_streak(conn):
         if d_str < min_date: break
         
         s_row = stats_dict.get(d_str, {}); l_p = logs_dict.get(d_str, 0)
-        g_p = s_row.get('goal_p') or int(settings.get('protein_goal', 160))
-        g_s = s_row.get('goal_s') or int(settings.get('step_goal', 10000))
+        g_p = s_row.get('goal_p') or int(float(settings.get('protein_goal', 160)))
+        g_s = s_row.get('goal_s') or int(float(settings.get('step_goal', 10000)))
         g_w = s_row.get('goal_w') or float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
         f_p = s_row.get('protein') if s_row.get('protein') is not None else l_p
         s_s = s_row.get('steps') or 0; s_w = s_row.get('water') or 0; s_sl = s_row.get('sleep') or 0
@@ -966,9 +991,9 @@ def edit_day(date):
             if request.form.get('override_routine') == 'on':
                 p_g = request.form.get('planned_g', "")
                 p_r = request.form.get('planned_r', "")
-                conn.execute('UPDATE daily_stats SET gym=?, run=?, planned_g=?, planned_r=? WHERE date=?', (g, ru, p_g, p_r, date))
+                conn.execute('UPDATE daily_stats SET gym=?, run=?, planned_g=?, planned_r=?, overridden=1 WHERE date=?', (g, ru, p_g, p_r, date))
             else:
-                conn.execute('UPDATE daily_stats SET gym=?, run=? WHERE date=?', (g, ru, date))
+                conn.execute('UPDATE daily_stats SET gym=?, run=?, overridden=0 WHERE date=?', (g, ru, date))
 
         conn.commit(); conn.close()
         if edit_type == 'money': return redirect(url_for('money', month=date[:7]))
@@ -988,8 +1013,13 @@ def edit_day(date):
     s_sl = stats['sleep'] if stats and 'sleep' in stats.keys() and stats['sleep'] is not None else ""
     s_n = stats['notes'] if stats and 'notes' in stats.keys() and stats['notes'] is not None else ""
     
-    p_g = stats['planned_g'] if stats and 'planned_g' in stats.keys() and stats['planned_g'] is not None else routine.get(wd, {}).get("g", "")
-    p_r = stats['planned_r'] if stats and 'planned_r' in stats.keys() and stats['planned_r'] is not None else routine.get(wd, {}).get("r", "")
+    overridden = stats['overridden'] if stats and 'overridden' in stats.keys() else 0
+    if overridden:
+        p_g = stats['planned_g'] if stats['planned_g'] is not None else ""
+        p_r = stats['planned_r'] if stats['planned_r'] is not None else ""
+    else:
+        p_g = routine.get(wd, {}).get("g", "")
+        p_r = routine.get(wd, {}).get("r", "")
     
     s_gym = 'checked' if stats and 'gym' in stats.keys() and stats['gym'] == 1 else ""
     s_run = 'checked' if stats and 'run' in stats.keys() and stats['run'] == 1 else ""
@@ -1016,6 +1046,9 @@ def edit_day(date):
         g_sel = "".join([f'<option value="{o}" {"selected" if o==p_g else ""}>{o if o else "Rest"}</option>' for o in gym_opts])
         r_sel = "".join([f'<option value="{o}" {"selected" if o==p_r else ""}>{o if o else "Rest"}</option>' for o in run_opts])
         
+        override_checked = "checked" if overridden else ""
+        override_display = "block" if overridden else "none"
+        
         form_content = f"""
         <div class="checkbox-wrapper {s_gym}" id="gym_lbl" onclick="updateDailyStat('gym_lbl', 'gym_chk')">
             <input type="checkbox" id="gym_chk" name="gym" {'checked' if s_gym else ''} style="display:none;"> 
@@ -1026,12 +1059,12 @@ def edit_day(date):
             <span style="font-size:1.2rem; pointer-events: none;">🏃 Went Running</span>
         </div>
         
-        <div class="checkbox-wrapper" id="override_lbl" onclick="let cb=document.getElementById('override_chk'); cb.checked=!cb.checked; this.classList.toggle('checked', cb.checked); document.getElementById('override_box').style.display = cb.checked ? 'block' : 'none';">
-            <input type="checkbox" name="override_routine" id="override_chk" style="display:none;">
+        <div class="checkbox-wrapper {override_checked}" id="override_lbl" onclick="let cb=document.getElementById('override_chk'); cb.checked=!cb.checked; this.classList.toggle('checked', cb.checked); document.getElementById('override_box').style.display = cb.checked ? 'block' : 'none';">
+            <input type="checkbox" name="override_routine" id="override_chk" style="display:none;" {'checked' if overridden else ''}>
             <span style="font-size:1.1rem; pointer-events:none;">Override Planned Routine?</span>
         </div>
         
-        <div id="override_box" style="display:none; background:#1c1c1e; padding:15px; border-radius:12px; margin-top:5px; width:100%; box-sizing:border-box; border:1px solid #ff9f0a;">
+        <div id="override_box" style="display:{override_display}; background:#1c1c1e; padding:15px; border-radius:12px; margin-top:5px; width:100%; box-sizing:border-box; border:1px solid #ff9f0a;">
             <p style="color:#8e8e93; font-size:0.8rem; margin-top:0;">Change the plan just for this day.</p>
             <div style="display:flex; gap:10px; width:100%;">
                 <select name="planned_g" style="flex:1; padding:10px; font-weight:bold; margin:0;">{g_sel}</select>
@@ -1084,10 +1117,8 @@ def routine():
     run_opts = ["", "Tempo", "Easy", "Hard"]
     rows_html = ""
     for i, day in enumerate(days):
-        g_val = routines.get(str(i), {}).get("g", "")
-        r_val = routines.get(str(i), {}).get("r", "")
-        g_sel = "".join([f'<option value="{o}" {"selected" if o==g_val else ""}>{o if o else "Rest"}</option>' for o in gym_opts])
-        r_sel = "".join([f'<option value="{o}" {"selected" if o==r_val else ""}>{o if o else "Rest"}</option>' for o in run_opts])
+        g_sel = "".join([f'<option value="{o}" {"selected" if o==routines.get(str(i), {}).get("g", "") else ""}>{o if o else "Rest"}</option>' for o in gym_opts])
+        r_sel = "".join([f'<option value="{o}" {"selected" if o==routines.get(str(i), {}).get("r", "") else ""}>{o if o else "Rest"}</option>' for o in run_opts])
         
         rows_html += f"""
         <div style="background:#2c2c2e; padding:15px; border-radius:12px; margin-bottom:10px; text-align:left; border: 2px solid #3a3a3c;">
@@ -1141,8 +1172,13 @@ def manage_favs():
                    ('protein_goal', request.form.get('new_p_goal')), ('step_goal', request.form.get('new_s_goal')), 
                    ('water_goal', request.form.get('new_w_goal'))]
         for k, v in updates:
-            if v: conn.execute("UPDATE settings SET value=? WHERE key=?", (v.replace(',', '.'), k))
+            if v is not None and v != "": 
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, v.replace(',', '.')))
+        
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        conn.execute('UPDATE daily_stats SET goal_c=NULL, goal_p=NULL, goal_s=NULL, goal_w=NULL WHERE date >= ?', (today_str,))
         conn.commit()
+        
     goals = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
     conn.close()
     
