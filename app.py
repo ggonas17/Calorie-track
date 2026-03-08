@@ -44,8 +44,7 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS routines (id INTEGER PRIMARY KEY AUTOINCREMENT, start_date TEXT, end_date TEXT, schedule TEXT)''')
     
     defaults = [('daily_goal', '2100'), ('protein_goal', '160'), ('step_goal', '10000'), 
-                ('water_goal', '2.5'), ('money_goal', '300'), ('sleep_goal', '7.5'),
-                ('cal_mode', 'static'), ('cal_gym', '2500'), ('cal_run', '2300'), ('cal_both', '2800'), ('cal_rest', '2000')]
+                ('water_goal', '2.5'), ('money_goal', '300'), ('sleep_goal', '7.5')]
     for k, v in defaults:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
@@ -63,40 +62,19 @@ def get_routine_for_date(conn, d_str):
 
 def ensure_daily_goals(date_str):
     conn = get_db_connection()
-    row = conn.execute('SELECT * FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
-    settings = {r['key']: r['value'] for r in conn.execute("SELECT * FROM settings").fetchall()}
-    
-    routine = get_routine_for_date(conn, date_str)
-    wd = str(datetime.strptime(date_str, "%Y-%m-%d").weekday())
-    
-    if row and row['planned_g'] is not None: p_g = row['planned_g']
-    else: p_g = routine.get(wd, {}).get("g", "")
-    
-    if row and row['planned_r'] is not None: p_r = row['planned_r']
-    else: p_r = routine.get(wd, {}).get("r", "")
-
-    # MOTOR DINAMICO DE CALORIAS
-    cal_mode = settings.get('cal_mode', 'static')
-    if cal_mode == 'dynamic':
-        has_g = bool(p_g)
-        has_r = bool(p_r)
-        if has_g and has_r: g_c = int(settings.get('cal_both', 2800))
-        elif has_g: g_c = int(settings.get('cal_gym', 2500))
-        elif has_r: g_c = int(settings.get('cal_run', 2300))
-        else: g_c = int(settings.get('cal_rest', 2000))
-    else:
-        g_c = int(settings.get('daily_goal', 2100))
-
-    g_p = int(settings.get('protein_goal', 160))
-    g_s = int(settings.get('step_goal', 10000))
-    g_w = float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
-    
-    if not row:
-        conn.execute('INSERT INTO daily_stats (date, goal_c, goal_p, goal_s, goal_w, planned_g, planned_r) VALUES (?, ?, ?, ?, ?, ?, ?)', (date_str, g_c, g_p, g_s, g_w, p_g, p_r))
-    else:
-        conn.execute('UPDATE daily_stats SET goal_c=?, goal_p=?, goal_s=?, goal_w=?, planned_g=?, planned_r=? WHERE date=?', (g_c, g_p, g_s, g_w, p_g, p_r, date_str))
-    
-    conn.commit()
+    row = conn.execute('SELECT goal_p, planned_g FROM daily_stats WHERE date = ?', (date_str,)).fetchone()
+    if not row or row['goal_p'] is None or row['planned_g'] is None:
+        settings = {r['key']: r['value'] for r in conn.execute("SELECT * FROM settings").fetchall()}
+        g_c = int(settings.get('daily_goal', 2100)); g_p = int(settings.get('protein_goal', 160))
+        g_s = int(settings.get('step_goal', 10000)); g_w = float(str(settings.get('water_goal', 2.5)).replace(',', '.'))
+        
+        routine = get_routine_for_date(conn, date_str)
+        wd = str(datetime.strptime(date_str, "%Y-%m-%d").weekday())
+        p_g = routine.get(wd, {}).get("g", ""); p_r = routine.get(wd, {}).get("r", "")
+        
+        if not row: conn.execute('INSERT INTO daily_stats (date, goal_c, goal_p, goal_s, goal_w, planned_g, planned_r) VALUES (?, ?, ?, ?, ?, ?, ?)', (date_str, g_c, g_p, g_s, g_w, p_g, p_r))
+        else: conn.execute('UPDATE daily_stats SET goal_c=?, goal_p=?, goal_s=?, goal_w=?, planned_g=?, planned_r=? WHERE date=?', (g_c, g_p, g_s, g_w, p_g, p_r, date_str))
+        conn.commit()
     conn.close()
 
 def get_streak(conn):
@@ -566,70 +544,6 @@ def library():
     </body></html>
     """
 
-@app.route('/manage_favs', methods=['GET', 'POST'])
-def manage_favs():
-    conn = get_db_connection()
-    if request.method == 'POST':
-        updates = [('cal_mode', request.form.get('cal_mode')), ('daily_goal', request.form.get('new_goal')), 
-                   ('cal_gym', request.form.get('cal_gym')), ('cal_run', request.form.get('cal_run')),
-                   ('cal_both', request.form.get('cal_both')), ('cal_rest', request.form.get('cal_rest')),
-                   ('protein_goal', request.form.get('new_p_goal')), ('step_goal', request.form.get('new_s_goal')), 
-                   ('water_goal', request.form.get('new_w_goal'))]
-        for k, v in updates:
-            if v: conn.execute("UPDATE settings SET value=? WHERE key=?", (v.replace(',', '.'), k))
-        conn.commit()
-    goals = {row['key']: row['value'] for row in conn.execute("SELECT * FROM settings").fetchall()}
-    conn.close()
-    
-    cal_mode = goals.get('cal_mode', 'static')
-        
-    return f"""
-    <!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body>
-        <a href="/rank" class="btn-main" style="display:block; text-decoration:none; background:linear-gradient(90deg, #0a84ff, #5e5ce6); color:#fff; font-size:1.2rem; margin-bottom:20px; padding:20px; box-shadow: 0 4px 15px rgba(10,132,255,0.4);">SEE GOD RANK 🏆</a>
-        <a href="/routine" class="btn-main" style="display:block; text-decoration:none; background:#ff9f0a; color:#000; margin-bottom:15px;">🗓️ CREATE WORKOUT ROUTINE</a>
-        <a href="/library" class="btn-main" style="display:block; text-decoration:none; background:#2c2c2e; color:#fff; border: 1px solid #3a3a3c; margin-bottom:20px;">📚 OPEN LIBRARY</a>
-        
-        <div class="card">
-            <h3 style="margin-top:0; color:#8e8e93;">CALORIE GOALS 🎯</h3>
-            <form method="POST">
-                <div style="margin-bottom:15px;">
-                    <span class="input-label">Mode</span>
-                    <select name="cal_mode" id="cal_mode" onchange="document.getElementById('static_box').style.display = this.value === 'static' ? 'block' : 'none'; document.getElementById('dynamic_box').style.display = this.value === 'dynamic' ? 'block' : 'none';" style="margin:0;">
-                        <option value="static" {"selected" if cal_mode=='static' else ""}>Static (Same Every Day)</option>
-                        <option value="dynamic" {"selected" if cal_mode=='dynamic' else ""}>Dynamic (Varies by Routine)</option>
-                    </select>
-                </div>
-                
-                <div id="static_box" style="display:{'block' if cal_mode=='static' else 'none'}; margin-bottom:15px;">
-                    <span class="input-label">Daily Kcal</span>
-                    <input type="number" name="new_goal" value="{goals.get('daily_goal', 2100)}" style="margin:0;">
-                </div>
-                
-                <div id="dynamic_box" style="display:{'block' if cal_mode=='dynamic' else 'none'}; margin-bottom:15px;">
-                    <div style="display:flex; gap:10px; margin-bottom:10px;">
-                        <div style="flex:1;"><span class="input-label">Gym Day Kcal</span><input type="number" name="cal_gym" value="{goals.get('cal_gym', 2500)}" style="margin:0;"></div>
-                        <div style="flex:1;"><span class="input-label">Run Day Kcal</span><input type="number" name="cal_run" value="{goals.get('cal_run', 2300)}" style="margin:0;"></div>
-                    </div>
-                    <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><span class="input-label">Gym + Run Kcal</span><input type="number" name="cal_both" value="{goals.get('cal_both', 2800)}" style="margin:0;"></div>
-                        <div style="flex:1;"><span class="input-label">Rest Day Kcal</span><input type="number" name="cal_rest" value="{goals.get('cal_rest', 2000)}" style="margin:0;"></div>
-                    </div>
-                </div>
-
-                <h3 style="margin-top:20px; color:#8e8e93; border-top:1px solid #2c2c2e; padding-top:15px;">OTHER GOALS</h3>
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
-                    <div><span class="input-label">Prot (g)</span><input type="number" name="new_p_goal" value="{goals.get('protein_goal', 160)}" style="margin:0;"></div>
-                    <div><span class="input-label">Steps</span><input type="number" name="new_s_goal" value="{goals.get('step_goal', 10000)}" style="margin:0;"></div>
-                    <div><span class="input-label">Water (L)</span><input type="text" inputmode="decimal" name="new_w_goal" value="{str(goals.get('water_goal', 2.5)).replace('.', ',')}" style="margin:0;"></div>
-                </div>
-                <button type="submit" class="btn-main" style="margin-top:15px; background:#0a84ff; color:#fff;">SAVE GOALS</button>
-            </form>
-        </div>
-        <div class="card"><h3 style="margin-top:0; color:#8e8e93;">BACKUP & RESTORE 💾</h3><a href="/export_db" class="btn-main" style="display:block; text-decoration:none; background:#5e5ce6; margin-bottom:15px;">📥 DOWNLOAD APP BACKUP</a><form method="POST" action="/import_db" enctype="multipart/form-data" style="border-top: 1px solid #2c2c2e; padding-top: 15px;"><p style="font-size:0.8rem; color:#8e8e93; text-align:left; margin-top:0;">Changed phones? Upload your '.db' file here.</p><input type="file" name="db_file" accept=".db" required style="width:100%; margin-bottom:10px; background:#000;"><button type="submit" class="btn-red" style="margin:0; width:100%; background:rgba(255, 159, 10, 0.15); color:#ff9f0a; border: 1px solid #ff9f0a;">📤 RESTORE BACKUP</button></form></div>
-        <div class="nav-bar"><a href="/" class="nav-item"><span style="font-size:1.2rem;">🏠</span>TODAY</a><a href="/history" class="nav-item"><span style="font-size:1.2rem;">📅</span>ROUTINES</a><a href="/money" class="nav-item"><span style="font-size:1.2rem;">💸</span>MONEY</a><a href="/manage_favs" class="nav-item active"><span style="font-size:1.2rem;">⚙️</span>SETTINGS</a></div>
-    </body></html>
-    """
-
 @app.route('/history')
 def history():
     conn = get_db_connection()
@@ -1093,7 +1007,7 @@ def edit_day(date):
     </div>""" for l in logs])
     
     if edit_type == 'macros':
-        form_content = f'<div style="margin-bottom:10px;"><span class="input-label">Calories (Kcal)</span><input type="number" name="calories" value="{s_c}" placeholder="Auto: {logs_c} kcal" style="margin:0;"></div><div style="margin-bottom:10px;"><span class="input-label">Protein (g)</span><input type="number" name="protein" value="{s_p}" placeholder="Auto: {logs_p} g" style="margin:0;"></div><div style="margin-bottom:10px;"><span class="input-label">Steps 👣</span><input type="number" name="steps" value="{s_s}" placeholder="E.g., 10500" style="margin:0;"></div><div><span class="input-label">Daily Notes 📝</span><textarea name="notes" rows="3" placeholder="Today went wrong because..." style="margin:0; resize:none;">{s_n}</textarea></div>'
+        form_content = f'<div style="margin-bottom:10px;"><span class="input-label">Calories (Kcal)</span><input type="number" name="calories" value="{s_c}" placeholder="Auto: {logs_c} kcal" style="margin:0;"></div><div style="margin-bottom:10px;"><span class="input-label">Protein (g)</span><input type="number" name="protein" value="{s_p}" placeholder="Auto: {logs_p} g" style="margin:0;"></div><div style="margin-bottom:10px;"><span class="input-label">Steps 👣</span><input type="number" name="steps" value="{s_s}" placeholder="E.g., 10500" style="margin:0;"></div><div><span class="input-label">Daily Notes / Diary 📝</span><textarea name="notes" rows="4" placeholder="How was your day? Any reflections?" style="margin:0; resize:none;">{s_n}</textarea></div>'
         extra_html = f'<h3 class="day-header">DAY\'S LOG</h3>{html_logs or "<p style=\'color:#444; font-size:0.9rem;\'>No meals logged.</p>"}'
         title_top = "MACROS AND NOTES"
     elif edit_type == 'workout':
@@ -1143,7 +1057,7 @@ def edit_day(date):
         extra_html = ""
         title_top = "FINANCES"
 
-    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDIT {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin:top:20px;">SAVE DAY</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Go Back</a></div>{extra_html}</body></html>'
+    return f'<!DOCTYPE html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}</head><body><h2 style="color:#8e8e93; text-transform:uppercase;">{display_date}</h2><div class="card"><h3 style="margin-top:0; color:#8e8e93;">EDIT {title_top}</h3><form method="POST" action="/edit_day/{date}?type={edit_type}"><div style="display:flex; flex-direction:column; align-items:flex-start;">{form_content}</div><button type="submit" class="btn-main" style="margin-top:20px;">SAVE DAY</button></form><a href="javascript:history.back()" style="display:block; margin-top:20px; color:#8e8e93; text-decoration:none;">Go Back</a></div>{extra_html}</body></html>'
 
 @app.route('/routine', methods=['GET', 'POST'])
 def routine():
